@@ -17,7 +17,7 @@ const LEVELS: Record<string, string> = {
   plain:
     "a busy adult who needs plain language. Strip out jargon, legalese, and filler while keeping every important detail. Use short paragraphs, and use bullet points where they make steps or lists clearer.",
   expert:
-    "an expert reader. Keep the full detail and nuance — do not simplify the meaning — but improve clarity: fix tangled structure, and define any specialized jargon inline the first time it appears.",
+    "an expert reader. Keep the full detail and nuance, do not simplify the meaning, but improve clarity: fix tangled structure, and define any specialized jargon inline the first time it appears.",
 };
 
 const LANGS: Record<string, string> = {
@@ -35,7 +35,7 @@ const LANGS: Record<string, string> = {
 
 function buildSystem(level: string, lang: string): string {
   const levelText = LEVELS[level] ?? LEVELS.plain;
-  let s = `You are an accessibility assistant. You rewrite text so it is easier to access and understand for people facing barriers — including readers with dyslexia, cognitive disabilities, low literacy, limited English, or anyone facing dense government, legal, medical, or technical language.
+  let s = `You are an accessibility assistant. You rewrite text so it is easier to access and understand for people facing barriers, including readers with dyslexia, cognitive disabilities, low literacy, limited English, or anyone facing dense government, legal, medical, or technical language.
 
 Rewrite the user's text for ${levelText}
 
@@ -43,6 +43,8 @@ Rules:
 - Preserve all essential meaning, facts, names, numbers, dates, amounts, and warnings. Never invent information.
 - Keep the same intent and any required actions the reader must take.
 - Use a calm, direct, respectful tone. Do not talk down to the reader.
+- Never use em dashes. Use short sentences, commas, or periods instead.
+- Structure the result for easy reading: lead with a one-line summary, then use short paragraphs or a bulleted list (each bullet on its own line starting with "- ") when there are steps, conditions, or multiple points.
 - Output ONLY the rewritten text. No preamble, no "Here is", no commentary, no markdown fences.`;
 
   if (lang && lang !== "none" && LANGS[lang]) {
@@ -97,7 +99,7 @@ export async function POST(req: Request) {
   const openaiKey = process.env.OPENAI_API_KEY;
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
 
-  // Fallback: no key configured — stream a local best-effort rewrite.
+  // Fallback: no key configured, stream a local best-effort rewrite.
   if (!openaiKey && !anthropicKey) {
     const demo = localSimplify(text);
     const stream = new ReadableStream({

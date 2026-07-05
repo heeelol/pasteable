@@ -25,7 +25,9 @@ const LANGS = [
   { id: "ja", label: "Japanese" },
 ];
 
-const SAMPLE = `Notwithstanding any provision herein to the contrary, the undersigned patient hereby acknowledges and consents to the administration of the aforementioned diagnostic procedure, and further affirms that the attendant risks — including but not limited to hemorrhage, infection, and adverse reaction to anesthesia — have been disclosed in a manner sufficient to constitute informed consent, and that the patient shall be solely responsible for any charges not remitted by the applicable third-party payer within thirty (30) days of the date of service.`;
+const SAMPLE = `Notwithstanding any provision herein to the contrary, the undersigned patient hereby acknowledges and consents to the administration of the aforementioned diagnostic procedure, and further affirms that the attendant risks, including but not limited to hemorrhage, infection, and adverse reaction to anesthesia, have been disclosed in a manner sufficient to constitute informed consent, and that the patient shall be solely responsible for any charges not remitted by the applicable third-party payer within thirty (30) days of the date of service.`;
+
+type Visual = { summary: string; points: { text: string; emoji: string }[] };
 
 /* ---------------- readability (Flesch Reading Ease) ---------------- */
 function syllables(word: string): number {
@@ -74,6 +76,7 @@ function useHtmlAttr(attr: string, storageKey: string, onValue: string, offValue
 /* ---------------- inline icons ---------------- */
 const IconSun = () => (<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>);
 const IconMoon = () => (<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" /></svg>);
+const IconUpload = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 15V3M8 7l4-4 4 4M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" /></svg>);
 
 export default function Page() {
   const [input, setInput] = useState("");
@@ -85,8 +88,18 @@ export default function Page() {
   const [err, setErr] = useState("");
   const [sweep, setSweep] = useState(false);
   const [speaking, setSpeaking] = useState(false);
+
+  const [tab, setTab] = useState<"read" | "visual">("read");
+  const [visual, setVisual] = useState<Visual | null>(null);
+  const [visualBusy, setVisualBusy] = useState(false);
+  const [illus, setIllus] = useState("");
+  const [illusBusy, setIllusBusy] = useState(false);
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const [over, setOver] = useState(false);
+
   const outRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const [dark, toggleDark] = useHtmlAttr("data-theme", "cv-theme", "dark", "light");
   const [contrast, toggleContrast] = useHtmlAttr("data-contrast", "cv-contrast", "high", null);
@@ -95,10 +108,12 @@ export default function Page() {
   const beforeEase = useMemo(() => fleschEase(input), [input]);
   const afterEase = useMemo(() => fleschEase(output), [output]);
 
+  const resetResults = () => { setVisual(null); setIllus(""); };
+
   const clarify = useCallback(async () => {
     const text = input.trim();
     if (!text || busy) return;
-    setErr(""); setOutput(""); setBusy(true); setSweep(true);
+    setErr(""); setOutput(""); resetResults(); setBusy(true); setSweep(true);
     setTimeout(() => setSweep(false), 750);
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -128,12 +143,84 @@ export default function Page() {
     }
   }, [input, level, lang, busy]);
 
+  /* ---- file upload ---- */
+  const handleUpload = useCallback(async (file: File) => {
+    setErr("");
+    const name = file.name.toLowerCase();
+    const isText = file.type.startsWith("text/") || /\.(txt|md|markdown|csv|tsv|json|log|xml|html?)$/.test(name);
+    if (isText) {
+      const t = await file.text();
+      setInput(t.slice(0, 20000));
+      resetResults();
+      return;
+    }
+    setUploadBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/extract", { method: "POST", body: fd });
+      const data = await res.json();
+      if (data.error) setErr(data.error);
+      else { setInput((data.text ?? "").slice(0, 20000)); resetResults(); }
+    } catch {
+      setErr("Could not read that file. Try pasting the text instead.");
+    } finally {
+      setUploadBusy(false);
+    }
+  }, []);
+
+  /* ---- visual + illustration ---- */
+  const loadVisual = useCallback(async () => {
+    const text = (output || input).trim();
+    if (!text) { setErr("Clarify some text first, then open the Visual view."); return; }
+    setVisualBusy(true); setErr("");
+    try {
+      const res = await fetch("/api/visual", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, lang }),
+      });
+      const data = await res.json();
+      if (data.error) setErr(data.error);
+      else setVisual({ summary: data.summary ?? "", points: data.points ?? [] });
+    } catch {
+      setErr("Could not build the visual summary.");
+    } finally {
+      setVisualBusy(false);
+    }
+  }, [output, input, lang]);
+
+  const openVisual = useCallback(() => {
+    setTab("visual");
+    if (!visual && !visualBusy && (output || input).trim()) loadVisual();
+  }, [visual, visualBusy, output, input, loadVisual]);
+
+  const illustrate = useCallback(async () => {
+    const text = (output || input).trim();
+    if (!text) return;
+    setIllusBusy(true); setErr("");
+    try {
+      const res = await fetch("/api/illustrate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: visual?.summary || text }),
+      });
+      const data = await res.json();
+      if (data.error) setErr(data.error);
+      else setIllus(data.image ?? "");
+    } catch {
+      setErr("Could not generate a picture.");
+    } finally {
+      setIllusBusy(false);
+    }
+  }, [output, input, visual]);
+
   const pasteFromClipboard = useCallback(async () => {
     try {
       const t = await navigator.clipboard.readText();
-      if (t) setInput(t);
+      if (t) { setInput(t); resetResults(); }
     } catch {
-      setErr("Clipboard blocked by the browser — paste with Ctrl+V into the box instead.");
+      setErr("Clipboard blocked by the browser. Paste with Ctrl+V into the box instead.");
     }
   }, []);
 
@@ -158,7 +245,6 @@ export default function Page() {
     <>
       <a href="#workbench" className="skip-link">Skip to the workbench</a>
 
-      {/* top bar */}
       <header className="topbar">
         <div className="wrap topbar-inner">
           <div className="brand">
@@ -184,18 +270,17 @@ export default function Page() {
               <h1>Paste anything. Read it <span className="mark">your way.</span></h1>
               <p className="lede">
                 Dense forms, letters, and fine print shouldn&apos;t decide who gets to understand them.
-                Paste the hard text and get a clear version — read aloud, translated, or described.
+                Paste or upload the hard text and get a clear version, in pictures, read aloud, or translated.
               </p>
               <div className="hero-cta">
                 <button className="btn" onClick={scrollToBench}>Paste something <span className="keycap" aria-hidden="true">Ctrl V</span></button>
-                <button className="btn ghost" onClick={() => { setInput(SAMPLE); scrollToBench(); }}>Try a sample form</button>
+                <button className="btn ghost" onClick={() => { setInput(SAMPLE); resetResults(); scrollToBench(); }}>Try a sample form</button>
               </div>
               <p className="who">
-                For readers with <b>dyslexia</b>, <b>low literacy</b>, <b>limited English</b>, a <b>cognitive disability</b>, or a <b>screen reader</b> — the barrier is the same dense wall of text. Fix the text, and it&apos;s theirs.
+                For readers with <b>dyslexia</b>, <b>low literacy</b>, <b>limited English</b>, a <b>cognitive disability</b>, or a <b>screen reader</b>, the barrier is the same dense wall of text. Fix the text, and it&apos;s theirs.
               </p>
             </div>
 
-            {/* specimen — the thesis, shown */}
             <div className="specimen" aria-hidden="true">
               <span className="spec-tag">What you paste</span>
               <p className="spec-before">
@@ -207,9 +292,9 @@ export default function Page() {
                 Pay any part of the bill your <span className="mark">insurance doesn&apos;t cover within 30 days</span> of your visit.
               </p>
               <div className="spec-foot">
-                <span className="pill">Read aloud</span>
-                <span className="pill">10 languages</span>
-                <span className="pill">Alt-text for images</span>
+                <span className="pill">🖼️ Pictures</span>
+                <span className="pill">🔊 Read aloud</span>
+                <span className="pill">🌐 10 languages</span>
               </div>
             </div>
           </div>
@@ -220,7 +305,7 @@ export default function Page() {
           <div className="wrap">
             <div className="section-label">
               <h2>The workbench</h2>
-              <p>Paste on the left. Choose how it should read. Get it on the right.</p>
+              <p>Paste or upload on the left. Choose how it should read. Get it on the right.</p>
             </div>
 
             <div className="controls">
@@ -246,16 +331,27 @@ export default function Page() {
 
             <div className="grid2">
               {/* input */}
-              <div className="panel">
+              <div
+                className={`panel${over ? " drop-over" : ""}`}
+                onDragOver={(e) => { e.preventDefault(); setOver(true); }}
+                onDragLeave={() => setOver(false)}
+                onDrop={(e) => { e.preventDefault(); setOver(false); const f = e.dataTransfer.files[0]; if (f) handleUpload(f); }}
+              >
                 <div className="panel-head">
-                  <span className="panel-title"><span className="dot" style={{ background: "var(--muted)" }} /> Paste it here</span>
-                  <button className="iconbtn" onClick={pasteFromClipboard} title="Paste from clipboard">Paste</button>
+                  <span className="panel-title"><span className="dot" style={{ background: "var(--muted)" }} /> Paste or upload</span>
+                  <div className="panel-actions">
+                    <button className="iconbtn" onClick={() => fileRef.current?.click()} disabled={uploadBusy} title="Upload a PDF, Word, or text file">
+                      <IconUpload /> {uploadBusy ? "Reading…" : "Upload"}
+                    </button>
+                    <button className="iconbtn" onClick={pasteFromClipboard} title="Paste from clipboard">Paste</button>
+                  </div>
+                  <input ref={fileRef} type="file" hidden accept=".txt,.md,.markdown,.csv,.tsv,.json,.log,.xml,.html,.htm,.pdf,.docx,text/*,application/pdf" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUpload(f); e.currentTarget.value = ""; }} />
                 </div>
                 <textarea
                   className="paste-area"
-                  placeholder="Paste a form, a letter, an email, terms and conditions, a doctor's note… anything hard to read."
+                  placeholder="Paste a form, a letter, an email, terms and conditions, a doctor's note… or drop a PDF or Word file here."
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
+                  onChange={(e) => { setInput(e.target.value); resetResults(); }}
                   aria-label="Text to clarify"
                 />
                 <div className="panel-foot">
@@ -267,26 +363,67 @@ export default function Page() {
               {/* output */}
               <div className={`panel sweep${sweep ? " go" : ""}`}>
                 <div className="panel-head">
-                  <span className="panel-title"><span className="dot" style={{ background: "var(--good)" }} /> Clear version</span>
-                  {output && (
+                  <div className="tabs" role="tablist" aria-label="Output view">
+                    <button role="tab" aria-selected={tab === "read"} className="tab" onClick={() => setTab("read")}>Read</button>
+                    <button role="tab" aria-selected={tab === "visual"} className="tab" onClick={openVisual}>Visual</button>
+                  </div>
+                  {tab === "read" && output && (
                     <div className="panel-actions">
                       <button className="iconbtn" aria-pressed={speaking} onClick={() => speak(output)} title="Read aloud">{speaking ? "Stop" : "Read"}</button>
                       <button className="iconbtn" onClick={() => copy(output)} title="Copy result">Copy</button>
                     </div>
                   )}
                 </div>
-                <div className="reader-out" ref={outRef} aria-live="polite">
-                  {output ? (
-                    <>{output}{busy && <span className="cursor" aria-hidden="true" />}</>
-                  ) : (
-                    <div className="reader-empty">
-                      <span className="keycap" aria-hidden="true">Ctrl V</span>
-                      <span className="big">Your clear version appears here.</span>
-                      <span>Pick a reading level, then press Clarify text.</span>
-                    </div>
-                  )}
-                </div>
-                {mode === "demo" && <div className="panel-foot"><span className="count">Demo mode — set an OpenAI or Anthropic API key for full AI rewrites.</span></div>}
+
+                {tab === "read" ? (
+                  <div className="reader-out" ref={outRef} aria-live="polite">
+                    {output ? (
+                      <>{output}{busy && <span className="cursor" aria-hidden="true" />}</>
+                    ) : (
+                      <div className="reader-empty">
+                        <span className="keycap" aria-hidden="true">Ctrl V</span>
+                        <span className="big">Your clear version appears here.</span>
+                        <span>Pick a reading level, then press Clarify text.</span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="reader-out visual-pane">
+                    {visualBusy ? (
+                      <div className="reader-empty"><span className="big">Drawing it out…</span></div>
+                    ) : visual ? (
+                      <>
+                        {visual.summary && <p className="visual-summary">{visual.summary}</p>}
+                        <div className="cards">
+                          {visual.points.map((p, i) => (
+                            <div className="card" key={i}>
+                              <span className="card-emoji" aria-hidden="true">{p.emoji || "•"}</span>
+                              <span className="card-text">{p.text}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="illus-row">
+                          {illus ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img className="illus" src={illus} alt="Illustration of the summary" />
+                          ) : (
+                            <button className="btn ghost" onClick={illustrate} disabled={illusBusy}>
+                              {illusBusy ? "Drawing a picture…" : "🎨 Generate a picture"}
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="reader-empty">
+                        <span className="big">A picture-based summary appears here.</span>
+                        <span>Clarify some text, then open this view.</span>
+                        {(output || input).trim() && <button className="btn ghost" style={{ marginTop: 8 }} onClick={loadVisual}>Build the visual summary</button>}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {mode === "demo" && tab === "read" && <div className="panel-foot"><span className="count">Demo mode. Set an OpenAI or Anthropic API key for full AI rewrites.</span></div>}
               </div>
             </div>
 
@@ -301,7 +438,7 @@ export default function Page() {
                 </div>
                 <div className="txt">
                   <b>{easeLabel(afterEase)}</b>
-                  <span>Reading ease of the clear version (0–100)</span>
+                  <span>Reading ease of the clear version (0 to 100)</span>
                   {afterEase > beforeEase && <span className="delta">+{afterEase - beforeEase} points easier than the original ({beforeEase})</span>}
                 </div>
               </div>
@@ -312,7 +449,7 @@ export default function Page() {
         {/* image alt-text */}
         <AltTextSection speak={speak} copy={copy} speaking={speaking} />
 
-        {/* features (no numbered steps) */}
+        {/* features */}
         <section className="features">
           <div className="wrap">
             <div className="section-label">
@@ -324,15 +461,15 @@ export default function Page() {
                 <span className="ficon" aria-hidden="true">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7h16M4 12h10M4 17h13" /></svg>
                 </span>
-                <h3>Plain-language rewrite</h3>
-                <p>Choose a reading level from 3rd grade to expert. The AI rewrites the text at that level while keeping every fact, date, amount, and warning intact.</p>
+                <h3>Plain language, in pictures</h3>
+                <p>Choose a reading level from 3rd grade to expert. Get a clear rewrite and an easy-read view that pairs each key point with a picture, plus an optional AI illustration.</p>
               </div>
               <div className="feature">
                 <span className="ficon" aria-hidden="true">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5z" /><path d="M15.5 8.5a5 5 0 0 1 0 7" /><path d="M18.5 5.5a9 9 0 0 1 0 13" /></svg>
                 </span>
                 <h3>Hear it, translate it, describe it</h3>
-                <p>Play any result aloud, get it in ten languages, or drop in an image and receive screen-reader alt-text — for readers who can&apos;t use the original at all.</p>
+                <p>Play any result aloud, get it in ten languages, or drop in an image and receive screen-reader alt-text, for readers who can&apos;t use the original at all.</p>
               </div>
               <div className="feature">
                 <span className="ficon" aria-hidden="true">
@@ -347,7 +484,7 @@ export default function Page() {
 
         <footer className="foot">
           <div className="wrap">
-            <span>Pasteable — access should be a paste away.</span>
+            <span>Pasteable. Access should be a paste away.</span>
             <span>Set in <a href="https://brailleinstitute.org/freefont" target="_blank" rel="noreferrer">Atkinson Hyperlegible</a>, a typeface designed for low-vision readers.</span>
           </div>
         </footer>
