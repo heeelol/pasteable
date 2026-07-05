@@ -453,3 +453,29 @@ a { color: var(--accent); }
 .guide-bar { height: 6px; border-radius: 999px; background: var(--line); overflow: hidden; margin: 0 0 14px; }
 .guide-bar-fill { height: 100%; background: var(--accent); border-radius: 999px; transition: width 0.35s ease; }
 .guide-hint { font-size: 0.8rem; color: var(--muted); margin: 12px 0 0; }
+
+/* ask about the document */
+.ask-box { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line-soft); }
+.ask-form { display: flex; gap: 8px; }
+.ask-input {
+  flex: 1; min-width: 0; padding: 11px 13px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--paper); color: var(--ink); font-family: var(--font-body); font-size: 0.95rem;
+}
+.ask-input:focus { outline: none; border-color: var(--accent); }
+.ask-input::placeholder { color: var(--muted); }
+.ask-form .btn { padding: 11px 18px; }
+.ask-answer {
+  margin-top: 12px; padding: 14px; border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
+  display: flex; flex-direction: column; gap: 10px; align-items: flex-start;
+}
+.ask-answer p { margin: 0; font-size: 1.02rem; line-height: 1.55; color: var(--ink); }
+
+/* answer highlight on the page: solid cobalt, distinct from the risk-colored step highlight */
+.hl.hl-answer {
+  --mk: var(--accent);
+  animation: none;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  box-shadow: 0 0 0 2px var(--accent), 0 0 0 7px color-mix(in srgb, var(--accent) 30%, transparent);
+}

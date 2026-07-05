@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useSpeech } from "./useSpeech";
 
 type Level = "high" | "medium" | "low";
@@ -63,9 +63,14 @@ export default function PdfGuide({ lang }: { lang: string }) {
   const [over, setOver] = useState(false);
   const [mode, setMode] = useState<"key" | "full">("full");
   const [filter, setFilter] = useState<"all" | "risk">("all");
+  const [question, setQuestion] = useState("");
+  const [asking, setAsking] = useState(false);
+  const [answer, setAnswer] = useState("");
+  const [askErr, setAskErr] = useState("");
 
   const { speak, stop } = useSpeech(lang);
   const docTextRef = useRef("");
+  const answerRef = useRef<HTMLDivElement | null>(null);
 
   const viewerRef = useRef<HTMLDivElement>(null);
   const pagesRef = useRef<PageData[]>([]);
@@ -114,6 +119,7 @@ export default function PdfGuide({ lang }: { lang: string }) {
 
   const drawHighlight = useCallback((idx: number) => {
     const pages = pagesRef.current;
+    if (answerRef.current) { answerRef.current.remove(); answerRef.current = null; }
     if (highlightRef.current) { highlightRef.current.remove(); highlightRef.current = null; }
     markersRef.current.forEach((m, j) => { if (m) m.classList.toggle("active", j === idx); });
     const loc = locsRef.current[idx];
@@ -212,7 +218,7 @@ export default function PdfGuide({ lang }: { lang: string }) {
     stop(); setPlaying(false); setFilter("all");
     setFileName(file.name);
     setStatus("rendering");
-    setSteps([]); setStepIndex(0); setTitle("");
+    setSteps([]); setStepIndex(0); setTitle(""); setAnswer(""); setAskErr(""); setQuestion("");
     try {
       const pdfjs = await import("pdfjs-dist");
       pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
@@ -271,7 +277,47 @@ export default function PdfGuide({ lang }: { lang: string }) {
     else setPlaying(true);
   }, [playing, stop]);
 
-  const reset = useCallback(() => { stop(); setPlaying(false); pagesRef.current = []; setStatus("idle"); }, [stop]);
+  const reset = useCallback(() => { stop(); setPlaying(false); pagesRef.current = []; setStatus("idle"); setAnswer(""); setQuestion(""); setAskErr(""); }, [stop]);
+
+  const ask = useCallback(async (e: FormEvent) => {
+    e.preventDefault();
+    const q = question.trim();
+    if (!q || asking || !docTextRef.current) return;
+    setAsking(true); setAnswer(""); setAskErr("");
+    try {
+      const res = await fetch("/api/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: docTextRef.current, question: q, lang }),
+      });
+      const d = await res.json();
+      if (d.error) { setAskErr(d.error); return; }
+      setAnswer(d.answer || "");
+      // highlight the supporting clause on the page, distinct from the step highlight
+      if (highlightRef.current) { highlightRef.current.remove(); highlightRef.current = null; }
+      if (answerRef.current) { answerRef.current.remove(); answerRef.current = null; }
+      const loc = d.anchor ? findAnchor(pagesRef.current, d.anchor) : null;
+      if (loc && pagesRef.current[loc.page]) {
+        const box = document.createElement("div");
+        box.className = "hl hl-answer";
+        box.style.left = loc.rect.x + "px"; box.style.top = loc.rect.y + "px";
+        box.style.width = loc.rect.w + "px"; box.style.height = loc.rect.h + "px";
+        pagesRef.current[loc.page].overlay.appendChild(box);
+        answerRef.current = box;
+        const cont = viewerRef.current;
+        if (cont) {
+          const cr = cont.getBoundingClientRect();
+          const wr = pagesRef.current[loc.page].wrapper.getBoundingClientRect();
+          cont.scrollTo({ top: Math.max(0, cont.scrollTop + (wr.top - cr.top) + loc.rect.y - 90), behavior: "smooth" });
+        }
+      }
+      if (d.answer) speak(d.answer);
+    } catch {
+      setAskErr("Could not get an answer. Please try again.");
+    } finally {
+      setAsking(false);
+    }
+  }, [question, asking, lang, speak]);
 
   const goPrev = () => { if (pos > 0) setStepIndex(order[pos - 1]); };
   const goNext = () => { if (pos < order.length - 1) setStepIndex(order[pos + 1]); };
@@ -369,6 +415,26 @@ export default function PdfGuide({ lang }: { lang: string }) {
                     </div>
                   </div>
                   <p className="guide-hint">Tip: red pins are the parts that could cost you. Use the arrow keys, or click any pin on the document.</p>
+
+                  <div className="ask-box">
+                    <form className="ask-form" onSubmit={ask}>
+                      <input
+                        className="ask-input"
+                        value={question}
+                        onChange={(e) => setQuestion(e.target.value)}
+                        placeholder="Ask about this document, like 'can they cancel on me?'"
+                        aria-label="Ask a question about this document"
+                      />
+                      <button className="btn" type="submit" disabled={asking || !question.trim()}>{asking ? "…" : "Ask"}</button>
+                    </form>
+                    {askErr && <p className="err" role="alert">{askErr}</p>}
+                    {answer && (
+                      <div className="ask-answer">
+                        <p>{answer}</p>
+                        <button className="iconbtn" onClick={() => speak(answer)} aria-label="Read the answer aloud">▶ Read</button>
+                      </div>
+                    )}
+                  </div>
                 </>
               ) : null}
             </aside>
