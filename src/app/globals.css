@@ -365,6 +365,16 @@ a { color: var(--accent); }
 .illus { max-width: 100%; width: 340px; border-radius: 14px; border: 1px solid var(--line); box-shadow: var(--shadow); }
 
 /* ---------- guided PDF walkthrough ---------- */
+.guide-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }
+.mode-toggle { display: inline-flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--paper-2); border: 1px solid var(--line); flex: none; }
+.mode-btn {
+  font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase;
+  font-weight: 700; padding: 8px 13px; border: 0; border-radius: 7px; background: transparent;
+  color: var(--muted); cursor: pointer; transition: background 0.12s, color 0.12s; white-space: nowrap;
+}
+.mode-btn:hover { color: var(--ink); }
+.mode-btn[aria-pressed="true"] { background: var(--card); color: var(--accent); box-shadow: var(--shadow-sm); }
+
 .guide-grid { display: grid; grid-template-columns: 1fr 380px; gap: 18px; align-items: start; }
 @media (max-width: 900px) { .guide-grid { grid-template-columns: 1fr; } }
 

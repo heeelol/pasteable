@@ -53,8 +53,10 @@ export default function PdfGuide({ lang }: { lang: string }) {
   const [playing, setPlaying] = useState(false);
   const [err, setErr] = useState("");
   const [over, setOver] = useState(false);
+  const [mode, setMode] = useState<"key" | "full">("full");
 
   const { speak, stop } = useSpeech(lang);
+  const docTextRef = useRef("");
 
   const viewerRef = useRef<HTMLDivElement>(null);
   const pagesRef = useRef<PageData[]>([]);
@@ -140,6 +142,37 @@ export default function PdfGuide({ lang }: { lang: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [status, steps.length]);
 
+  const analyze = useCallback(async (docText: string, m: "key" | "full", initial: boolean) => {
+    setErr(""); stop(); setPlaying(false); setStatus("analyzing");
+    try {
+      const res = await fetch("/api/guide", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: docText, lang, mode: m }),
+      });
+      const g = await res.json();
+      if (g.error) { setErr(g.error); setStatus(initial ? "error" : "ready"); return; }
+      const gSteps: Step[] = g.steps ?? [];
+      locsRef.current = gSteps.map((s) => findAnchor(pagesRef.current, s.anchor));
+      renderMarkers();
+      setTitle(g.title ?? "Your document, in plain words");
+      setSteps(gSteps);
+      setStepIndex(0);
+      setStatus("ready");
+    } catch {
+      setErr("Could not analyze this document.");
+      setStatus(initial ? "error" : "ready");
+    }
+  }, [lang, renderMarkers, stop]);
+
+  const changeMode = useCallback((m: "key" | "full") => {
+    if (m === mode) return;
+    setMode(m);
+    if (docTextRef.current && status !== "rendering" && status !== "analyzing") {
+      analyze(docTextRef.current, m, false);
+    }
+  }, [mode, status, analyze]);
+
   const loadPdf = useCallback(async (file: File) => {
     setErr("");
     if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) { setErr("Please choose a PDF file."); return; }
@@ -193,26 +226,13 @@ export default function PdfGuide({ lang }: { lang: string }) {
       const docText = pages.map((p) => p.items.map((i) => i.str).join(" ")).join("\n\n").trim();
       if (docText.length < 40) { setErr("This PDF has no selectable text (it may be a scan), so it can't be walked through yet."); setStatus("error"); return; }
 
-      setStatus("analyzing");
-      const res = await fetch("/api/guide", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: docText, lang }),
-      });
-      const g = await res.json();
-      if (g.error) { setErr(g.error); setStatus("error"); return; }
-      const gSteps: Step[] = g.steps ?? [];
-      locsRef.current = gSteps.map((s) => findAnchor(pages, s.anchor));
-      renderMarkers();
-      setTitle(g.title ?? "Document walkthrough");
-      setSteps(gSteps);
-      setStepIndex(0);
-      setStatus("ready");
+      docTextRef.current = docText;
+      await analyze(docText, mode, true);
     } catch {
       setErr("Could not open that PDF. Try another file.");
       setStatus("error");
     }
-  }, [lang, renderMarkers, stop]);
+  }, [analyze, mode, stop]);
 
   const togglePlay = useCallback(() => {
     if (playing) { setPlaying(false); stop(); }
@@ -227,9 +247,15 @@ export default function PdfGuide({ lang }: { lang: string }) {
   return (
     <section className="bench" style={{ paddingTop: 44 }} aria-label="Guided PDF walkthrough" id="guide">
       <div className="wrap">
-        <div className="section-label">
-          <h2>Walk me through a PDF</h2>
-          <p>Upload a form or contract. Get guided, step by step, with each part highlighted and explained aloud.</p>
+        <div className="guide-head">
+          <div className="section-label" style={{ marginBottom: 0 }}>
+            <h2>Walk me through a PDF</h2>
+            <p>Upload a form or contract. Get guided, step by step, with each part highlighted and explained aloud.</p>
+          </div>
+          <div className="mode-toggle" role="group" aria-label="Walkthrough depth">
+            <button className="mode-btn" aria-pressed={mode === "key"} onClick={() => changeMode("key")} title="A curated handful of the most important points">Key points</button>
+            <button className="mode-btn" aria-pressed={mode === "full"} onClick={() => changeMode("full")} title="Every important point, clause by clause">Comprehensive</button>
+          </div>
         </div>
 
         {status === "idle" || status === "error" ? (
