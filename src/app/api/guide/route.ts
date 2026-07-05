@@ -12,9 +12,9 @@ const ANTHROPIC_MODEL = "claude-haiku-4-5";
 const OPENAI_MODEL = "gpt-4o-mini";
 
 const MAX_INPUT = 80_000;   // characters of document text considered
-const CHUNK_SIZE = 3_200;   // characters per section sent to the model
-const CONCURRENCY = 6;
-const MAX_STEPS = 60;
+const CHUNK_SIZE = 2_000;   // characters per section sent to the model
+const CONCURRENCY = 8;
+const MAX_STEPS = 80;
 
 const LANGS: Record<string, string> = {
   es: "Spanish", fr: "French", zh: "Simplified Chinese", hi: "Hindi", ar: "Arabic",
@@ -24,7 +24,7 @@ const LANGS: Record<string, string> = {
 function system(lang: string): string {
   let s = `You help someone who struggles with dense text understand an important document such as a contract, terms and conditions, or a government form. You are given ONE SECTION of a longer document.
 
-Find EVERY point in THIS section that a regular person needs to understand or act on. Be thorough and do not skip things. Include: what they are agreeing to, every fee, cost, or amount, every deadline or date, anything they must do, provide, or sign, their rights, every condition or restriction, automatic renewals, penalties, and any warning or risk. If the section is pure boilerplate with nothing a person needs to act on, return an empty list.
+Go through this section clause by clause and pull out EVERY point a regular person needs to understand or act on. Be exhaustive, not selective. Do not stop at the most obvious points. Treat every numbered clause or distinct sentence as a candidate: if it contains a rule, an obligation, a fee or amount, a date or deadline, something the reader must do, provide, or sign, a right, a permission you are granting, a condition, a restriction, an automatic renewal, a penalty, a limit on liability, a change-of-terms clause, a dispute or arbitration clause, or any warning, it deserves its own step. When in doubt, include it rather than skip it. Only leave out pure filler with no meaning for a person. It is better to have too many steps than to miss something that matters.
 
 Return a JSON object shaped exactly like:
 { "steps": [ { "heading": "a short label for this point", "anchor": "a phrase copied WORD FOR WORD from the section text so it can be found and highlighted", "explanation": "1 to 3 short, plain sentences saying what this means and what, if anything, the reader must do", "emoji": "one emoji that pictures this point" } ] }
