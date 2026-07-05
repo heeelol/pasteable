@@ -20,9 +20,9 @@ const jetbrains = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Ctrl+V → Access — paste anything, get it in a form you can use",
+  title: "Pasteable — paste anything, read it your way",
   description:
-    "Paste dense text or an image and instantly get a plain-language version, read-aloud, alt-text, dyslexia mode, and translation. Built for the CTRL+V Hackathon.",
+    "Paste dense text or an image and get a plain-language version, read-aloud, translation, and screen-reader alt-text. Built for the CTRL+V Hackathon.",
 };
 
 // Set theme before paint to avoid a flash.

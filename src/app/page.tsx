@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-/* ---------------- reading-level + language config ---------------- */
+/* ---------------- config ---------------- */
 const LEVELS = [
   { id: "grade3", label: "Grade 3" },
   { id: "grade6", label: "Grade 6" },
@@ -52,7 +52,7 @@ function easeLabel(score: number): string {
   return "Very difficult";
 }
 
-/* ---------------- top bar toggles ---------------- */
+/* ---------------- toggles ---------------- */
 function useHtmlAttr(attr: string, storageKey: string, onValue: string, offValue: string | null) {
   const [on, setOn] = useState(false);
   useEffect(() => {
@@ -71,6 +71,10 @@ function useHtmlAttr(attr: string, storageKey: string, onValue: string, offValue
   return [on, toggle] as const;
 }
 
+/* ---------------- inline icons ---------------- */
+const IconSun = () => (<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>);
+const IconMoon = () => (<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" /></svg>);
+
 export default function Page() {
   const [input, setInput] = useState("");
   const [output, setOutput] = useState("");
@@ -84,7 +88,6 @@ export default function Page() {
   const outRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  // theme + a11y toggles
   const [dark, toggleDark] = useHtmlAttr("data-theme", "cv-theme", "dark", "light");
   const [contrast, toggleContrast] = useHtmlAttr("data-contrast", "cv-contrast", "high", null);
   const [dyslexia, toggleDyslexia] = useHtmlAttr("data-dyslexia", "cv-dyslexia", "on", null);
@@ -95,12 +98,8 @@ export default function Page() {
   const clarify = useCallback(async () => {
     const text = input.trim();
     if (!text || busy) return;
-    setErr("");
-    setOutput("");
-    setBusy(true);
-    setSweep(true);
+    setErr(""); setOutput(""); setBusy(true); setSweep(true);
     setTimeout(() => setSweep(false), 750);
-
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     try {
@@ -110,11 +109,7 @@ export default function Page() {
         body: JSON.stringify({ text, level, lang }),
         signal: ctrl.signal,
       });
-      if (!res.ok) {
-        setErr((await res.text()) || "Something went wrong.");
-        setBusy(false);
-        return;
-      }
+      if (!res.ok) { setErr((await res.text()) || "Something went wrong."); setBusy(false); return; }
       setMode((res.headers.get("X-Mode") as "live" | "demo") ?? null);
       const reader = res.body?.getReader();
       const dec = new TextDecoder();
@@ -129,8 +124,7 @@ export default function Page() {
     } catch (e) {
       if ((e as Error).name !== "AbortError") setErr("Network error. Please try again.");
     } finally {
-      setBusy(false);
-      abortRef.current = null;
+      setBusy(false); abortRef.current = null;
     }
   }, [input, level, lang, busy]);
 
@@ -143,38 +137,22 @@ export default function Page() {
     }
   }, []);
 
-  /* ---- text to speech ---- */
-  const speak = useCallback(
-    (text: string) => {
-      if (!("speechSynthesis" in window)) {
-        setErr("Read-aloud isn't supported in this browser.");
-        return;
-      }
-      if (speechSynthesis.speaking) {
-        speechSynthesis.cancel();
-        setSpeaking(false);
-        return;
-      }
-      const u = new SpeechSynthesisUtterance(text);
-      u.rate = 0.95;
-      const map: Record<string, string> = {
-        es: "es-ES", fr: "fr-FR", zh: "zh-CN", hi: "hi-IN", ar: "ar-SA",
-        pt: "pt-BR", vi: "vi-VN", de: "de-DE", ja: "ja-JP", tl: "fil-PH",
-      };
-      if (lang !== "none" && map[lang]) u.lang = map[lang];
-      u.onend = () => setSpeaking(false);
-      u.onerror = () => setSpeaking(false);
-      setSpeaking(true);
-      speechSynthesis.speak(u);
-    },
-    [lang]
-  );
+  const speak = useCallback((text: string) => {
+    if (!("speechSynthesis" in window)) { setErr("Read-aloud isn't supported in this browser."); return; }
+    if (speechSynthesis.speaking) { speechSynthesis.cancel(); setSpeaking(false); return; }
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 0.95;
+    const map: Record<string, string> = { es: "es-ES", fr: "fr-FR", zh: "zh-CN", hi: "hi-IN", ar: "ar-SA", pt: "pt-BR", vi: "vi-VN", de: "de-DE", ja: "ja-JP", tl: "fil-PH" };
+    if (lang !== "none" && map[lang]) u.lang = map[lang];
+    u.onend = () => setSpeaking(false);
+    u.onerror = () => setSpeaking(false);
+    setSpeaking(true);
+    speechSynthesis.speak(u);
+  }, [lang]);
   useEffect(() => () => { if (typeof window !== "undefined") window.speechSynthesis?.cancel(); }, []);
 
   const copy = useCallback((t: string) => { navigator.clipboard?.writeText(t).catch(() => {}); }, []);
-
-  const scrollToBench = () =>
-    document.getElementById("workbench")?.scrollIntoView({ behavior: "smooth" });
+  const scrollToBench = () => document.getElementById("workbench")?.scrollIntoView({ behavior: "smooth" });
 
   return (
     <>
@@ -184,13 +162,15 @@ export default function Page() {
       <header className="topbar">
         <div className="wrap topbar-inner">
           <div className="brand">
-            <span className="mark" aria-hidden="true">⌘V</span>
-            <span>Ctrl+V&nbsp;<span style={{ color: "var(--accent)" }}>→</span>&nbsp;Access</span>
+            <span className="glyph" aria-hidden="true">⌤</span>
+            <span>Pasteable</span>
           </div>
           <div className="toolbar">
-            <button className="iconbtn" aria-pressed={dyslexia} onClick={toggleDyslexia} title="Dyslexia-friendly reading mode">Aa Dyslexia</button>
-            <button className="iconbtn" aria-pressed={contrast} onClick={toggleContrast} title="High-contrast mode">◐ Contrast</button>
-            <button className="iconbtn" aria-pressed={dark} onClick={toggleDark} title="Toggle dark mode">{dark ? "☀︎" : "☾"}</button>
+            <button className="iconbtn" aria-pressed={dyslexia} onClick={toggleDyslexia} title="Dyslexia-friendly reading mode">Dyslexia</button>
+            <button className="iconbtn" aria-pressed={contrast} onClick={toggleContrast} title="High-contrast mode">Contrast</button>
+            <button className="iconbtn" aria-pressed={dark} onClick={toggleDark} title="Toggle dark mode" aria-label="Toggle dark mode">
+              {dark ? <IconSun /> : <IconMoon />}
+            </button>
           </div>
         </div>
       </header>
@@ -198,24 +178,39 @@ export default function Page() {
       <main>
         {/* hero */}
         <section className="hero">
-          <div className="wrap">
-            <p className="eyebrow">CTRL+V Hackathon · Accessibility for everyone</p>
-            <h1>
-              Paste anything.<br />
-              Get it in a form you <span className="mk">can actually use.</span>
-            </h1>
-            <p className="lede">
-              Dense forms, medical instructions, and legal text lock millions of people out. Paste it here
-              and get a plain-language version, read aloud, translated, or described — in one paste.
-            </p>
-            <div className="hero-cta">
-              <button className="btn" onClick={scrollToBench}>Start clarifying <span className="keycap" aria-hidden="true">Ctrl V</span></button>
-              <button className="btn ghost" onClick={() => { setInput(SAMPLE); scrollToBench(); }}>Try a sample form</button>
+          <div className="wrap hero-grid">
+            <div>
+              <p className="eyebrow">Accessibility · Built for the CTRL+V Hackathon</p>
+              <h1>Paste anything. Read it <span className="mark">your way.</span></h1>
+              <p className="lede">
+                Dense forms, letters, and fine print shouldn&apos;t decide who gets to understand them.
+                Paste the hard text and get a clear version — read aloud, translated, or described.
+              </p>
+              <div className="hero-cta">
+                <button className="btn" onClick={scrollToBench}>Paste something <span className="keycap" aria-hidden="true">Ctrl V</span></button>
+                <button className="btn ghost" onClick={() => { setInput(SAMPLE); scrollToBench(); }}>Try a sample form</button>
+              </div>
+              <p className="who">
+                For readers with <b>dyslexia</b>, <b>low literacy</b>, <b>limited English</b>, a <b>cognitive disability</b>, or a <b>screen reader</b> — the barrier is the same dense wall of text. Fix the text, and it&apos;s theirs.
+              </p>
             </div>
-            <div className="audience">
-              {["Dyslexia (1 in 10)", "Low literacy (~750M adults)", "New-language readers", "Screen-reader users", "Cognitive disabilities"].map((c) => (
-                <span className="chip" key={c}>{c}</span>
-              ))}
+
+            {/* specimen — the thesis, shown */}
+            <div className="specimen" aria-hidden="true">
+              <span className="spec-tag">What you paste</span>
+              <p className="spec-before">
+                “…the undersigned shall be solely responsible for any charges not remitted by the applicable third-party payer within thirty (30) days of the date of service.”
+              </p>
+              <div className="spec-arrow"><span>Pasteable</span><span className="line" /><span>Grade 6</span></div>
+              <span className="spec-tag">What you get</span>
+              <p className="spec-after">
+                Pay any part of the bill your <span className="mark">insurance doesn&apos;t cover within 30 days</span> of your visit.
+              </p>
+              <div className="spec-foot">
+                <span className="pill">Read aloud</span>
+                <span className="pill">10 languages</span>
+                <span className="pill">Alt-text for images</span>
+              </div>
             </div>
           </div>
         </section>
@@ -223,29 +218,31 @@ export default function Page() {
         {/* workbench */}
         <section className="bench" id="workbench" aria-label="Clarify text">
           <div className="wrap">
-            {/* controls */}
-            <div className="controls">
-              <div className="control-row">
-                <div className="field">
-                  <label id="lvl-label">Reading level</label>
-                  <div className="levels" role="group" aria-labelledby="lvl-label">
-                    {LEVELS.map((l) => (
-                      <button key={l.id} className="level" aria-pressed={level === l.id} onClick={() => setLevel(l.id)}>{l.label}</button>
-                    ))}
-                  </div>
-                </div>
-                <div className="field">
-                  <label htmlFor="lang">Translate to</label>
-                  <select id="lang" className="select" value={lang} onChange={(e) => setLang(e.target.value)}>
-                    {LANGS.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
-                  </select>
-                </div>
-                <button className="btn" onClick={clarify} disabled={!input.trim() || busy}>
-                  {busy ? "Clarifying…" : "Clarify text"}
-                </button>
-              </div>
-              {err && <p className="err" role="alert">{err}</p>}
+            <div className="section-label">
+              <h2>The workbench</h2>
+              <p>Paste on the left. Choose how it should read. Get it on the right.</p>
             </div>
+
+            <div className="controls">
+              <div className="field">
+                <label id="lvl-label">Reading level</label>
+                <div className="levels" role="group" aria-labelledby="lvl-label">
+                  {LEVELS.map((l) => (
+                    <button key={l.id} className="level" aria-pressed={level === l.id} onClick={() => setLevel(l.id)}>{l.label}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="field">
+                <label htmlFor="lang">Translate to</label>
+                <select id="lang" className="select" value={lang} onChange={(e) => setLang(e.target.value)}>
+                  {LANGS.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
+                </select>
+              </div>
+              <button className="btn" onClick={clarify} disabled={!input.trim() || busy} style={{ marginLeft: "auto" }}>
+                {busy ? "Clarifying…" : "Clarify text"}
+              </button>
+            </div>
+            {err && <p className="err" role="alert">{err}</p>}
 
             <div className="grid2">
               {/* input */}
@@ -262,10 +259,8 @@ export default function Page() {
                   aria-label="Text to clarify"
                 />
                 <div className="panel-foot">
-                  {beforeEase !== null && (
-                    <span className="count">Reading ease {beforeEase}/100 · {easeLabel(beforeEase)}</span>
-                  )}
-                  <span className="count">{input.length.toLocaleString()} chars</span>
+                  {beforeEase !== null && <span className="count">Reading ease {beforeEase}/100 · {easeLabel(beforeEase)}</span>}
+                  <span className="count right">{input.length.toLocaleString()} chars</span>
                 </div>
               </div>
 
@@ -274,49 +269,40 @@ export default function Page() {
                 <div className="panel-head">
                   <span className="panel-title"><span className="dot" style={{ background: "var(--good)" }} /> Clear version</span>
                   {output && (
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <button className="iconbtn" aria-pressed={speaking} onClick={() => speak(output)} title="Read aloud">{speaking ? "■ Stop" : "▶ Read"}</button>
+                    <div className="panel-actions">
+                      <button className="iconbtn" aria-pressed={speaking} onClick={() => speak(output)} title="Read aloud">{speaking ? "Stop" : "Read"}</button>
                       <button className="iconbtn" onClick={() => copy(output)} title="Copy result">Copy</button>
                     </div>
                   )}
                 </div>
                 <div className="reader-out" ref={outRef} aria-live="polite">
                   {output ? (
-                    <>
-                      {output}
-                      {busy && <span className="cursor" aria-hidden="true" />}
-                    </>
+                    <>{output}{busy && <span className="cursor" aria-hidden="true" />}</>
                   ) : (
                     <div className="reader-empty">
                       <span className="keycap" aria-hidden="true">Ctrl V</span>
                       <span className="big">Your clear version appears here.</span>
-                      <span>Pick a reading level, then press <strong>Clarify text</strong>.</span>
+                      <span>Pick a reading level, then press Clarify text.</span>
                     </div>
                   )}
                 </div>
-                {mode === "demo" && (
-                  <div className="panel-foot"><span className="count">Demo mode — set an OpenAI or Anthropic API key for full AI rewrites.</span></div>
-                )}
+                {mode === "demo" && <div className="panel-foot"><span className="count">Demo mode — set an OpenAI or Anthropic API key for full AI rewrites.</span></div>}
               </div>
             </div>
 
-            {/* readability meter */}
             {afterEase !== null && beforeEase !== null && (
-              <div className="meter" style={{ marginTop: 20 }} aria-label="Readability improvement">
+              <div className="meter" aria-label="Readability improvement">
                 <div className="gauge">
-                  <svg width="76" height="76" viewBox="0 0 76 76">
-                    <circle cx="38" cy="38" r="32" fill="none" stroke="var(--line)" strokeWidth="8" />
-                    <circle cx="38" cy="38" r="32" fill="none" stroke="var(--good)" strokeWidth="8"
-                      strokeLinecap="round" strokeDasharray={`${(afterEase / 100) * 201} 201`} />
+                  <svg width="72" height="72" viewBox="0 0 72 72">
+                    <circle cx="36" cy="36" r="30" fill="none" stroke="var(--line)" strokeWidth="7" />
+                    <circle cx="36" cy="36" r="30" fill="none" stroke="var(--good)" strokeWidth="7" strokeLinecap="round" strokeDasharray={`${(afterEase / 100) * 188} 188`} />
                   </svg>
                   <span className="val">{afterEase}</span>
                 </div>
                 <div className="txt">
                   <b>{easeLabel(afterEase)}</b>
                   <span>Reading ease of the clear version (0–100)</span>
-                  {afterEase > beforeEase && (
-                    <span className="delta">▲ +{afterEase - beforeEase} points easier than the original ({beforeEase})</span>
-                  )}
+                  {afterEase > beforeEase && <span className="delta">+{afterEase - beforeEase} points easier than the original ({beforeEase})</span>}
                 </div>
               </div>
             )}
@@ -326,26 +312,34 @@ export default function Page() {
         {/* image alt-text */}
         <AltTextSection speak={speak} copy={copy} speaking={speaking} />
 
-        {/* how it works */}
-        <section className="section">
+        {/* features (no numbered steps) */}
+        <section className="features">
           <div className="wrap">
-            <p className="eyebrow">Why it matters</p>
-            <h2>One paste. Many barriers removed.</h2>
-            <div className="steps">
-              <div className="step">
-                <span className="n">01 · Understand</span>
+            <div className="section-label">
+              <h2>One paste. Many barriers gone.</h2>
+              <p>The same wall of text, made usable for very different readers.</p>
+            </div>
+            <div className="feature-grid">
+              <div className="feature">
+                <span className="ficon" aria-hidden="true">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7h16M4 12h10M4 17h13" /></svg>
+                </span>
                 <h3>Plain-language rewrite</h3>
-                <p>Claude rewrites dense text at the reading level you choose — from 3rd grade to expert — while keeping every fact, date, and warning.</p>
+                <p>Choose a reading level from 3rd grade to expert. The AI rewrites the text at that level while keeping every fact, date, amount, and warning intact.</p>
               </div>
-              <div className="step">
-                <span className="n">02 · Access</span>
+              <div className="feature">
+                <span className="ficon" aria-hidden="true">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5z" /><path d="M15.5 8.5a5 5 0 0 1 0 7" /><path d="M18.5 5.5a9 9 0 0 1 0 13" /></svg>
+                </span>
                 <h3>Hear it, translate it, describe it</h3>
-                <p>Read any result aloud, get it in ten languages, or turn an image into screen-reader alt-text — for readers who can&apos;t use the original at all.</p>
+                <p>Play any result aloud, get it in ten languages, or drop in an image and receive screen-reader alt-text — for readers who can&apos;t use the original at all.</p>
               </div>
-              <div className="step">
-                <span className="n">03 · Read your way</span>
-                <h3>Dyslexia &amp; high-contrast modes</h3>
-                <p>The tool practices what it preaches: hyperlegible type, generous spacing, a dyslexia mode, high-contrast, dark mode, and full keyboard access.</p>
+              <div className="feature">
+                <span className="ficon" aria-hidden="true">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 3a9 9 0 0 0 0 18" fill="currentColor" stroke="none" /></svg>
+                </span>
+                <h3>Reads the way you do</h3>
+                <p>Pasteable practices what it preaches: hyperlegible type, a dyslexia mode, high-contrast and dark modes, full keyboard access, and a live readability score.</p>
               </div>
             </div>
           </div>
@@ -353,8 +347,8 @@ export default function Page() {
 
         <footer className="foot">
           <div className="wrap">
-            Built for the CTRL+V Hackathon · Access should be a paste away.<br />
-            Set in <strong>Atkinson Hyperlegible</strong>, a typeface designed for low-vision readers.
+            <span>Pasteable — access should be a paste away.</span>
+            <span>Set in <a href="https://brailleinstitute.org/freefont" target="_blank" rel="noreferrer">Atkinson Hyperlegible</a>, a typeface designed for low-vision readers.</span>
           </div>
         </footer>
       </main>
@@ -363,13 +357,7 @@ export default function Page() {
 }
 
 /* ---------------- image → alt text ---------------- */
-function AltTextSection({
-  speak, copy, speaking,
-}: {
-  speak: (t: string) => void;
-  copy: (t: string) => void;
-  speaking: boolean;
-}) {
+function AltTextSection({ speak, copy, speaking }: { speak: (t: string) => void; copy: (t: string) => void; speaking: boolean; }) {
   const [preview, setPreview] = useState("");
   const [alt, setAlt] = useState("");
   const [long, setLong] = useState("");
@@ -402,11 +390,13 @@ function AltTextSection({
   }, []);
 
   return (
-    <section className="section" aria-label="Describe an image">
+    <section className="bench" style={{ paddingTop: 44 }} aria-label="Describe an image">
       <div className="wrap">
-        <p className="eyebrow">For screen-reader users</p>
-        <h2>Paste an image, get a description.</h2>
-        <div className="grid2" style={{ marginTop: 22 }}>
+        <div className="section-label">
+          <h2>Paste an image, get a description</h2>
+          <p>For blind and low-vision readers using a screen reader.</p>
+        </div>
+        <div className="grid2">
           <div
             className={`drop${over ? " over" : ""}`}
             onDragOver={(e) => { e.preventDefault(); setOver(true); }}
@@ -414,8 +404,7 @@ function AltTextSection({
             onDrop={(e) => { e.preventDefault(); setOver(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
             onPaste={(e) => { const f = e.clipboardData.files[0]; if (f) handleFile(f); }}
             onClick={() => inputRef.current?.click()}
-            role="button"
-            tabIndex={0}
+            role="button" tabIndex={0}
             onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") inputRef.current?.click(); }}
             aria-label="Upload, drop, or paste an image to describe"
           >
@@ -423,19 +412,18 @@ function AltTextSection({
               // eslint-disable-next-line @next/next/no-img-element
               <img src={preview} alt="Selected image preview" />
             ) : (
-              <p style={{ fontSize: "2rem", margin: "0 0 6px" }} aria-hidden="true">🖼️</p>
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2.5" /><circle cx="8.5" cy="8.5" r="1.6" /><path d="m21 15-4.5-4.5L5 21" /></svg>
             )}
             <p><strong>Drop, paste, or click</strong> to choose an image.<br />JPEG, PNG, GIF, or WebP.</p>
-            <input ref={inputRef} type="file" accept="image/*" hidden
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
+            <input ref={inputRef} type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
           </div>
 
           <div className="panel" style={{ minHeight: 220 }}>
             <div className="panel-head">
               <span className="panel-title"><span className="dot" style={{ background: "var(--accent)" }} /> Screen-reader description</span>
               {alt && (
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button className="iconbtn" aria-pressed={speaking} onClick={() => speak(`${alt}. ${long}`)}>{speaking ? "■ Stop" : "▶ Read"}</button>
+                <div className="panel-actions">
+                  <button className="iconbtn" aria-pressed={speaking} onClick={() => speak(`${alt}. ${long}`)}>{speaking ? "Stop" : "Read"}</button>
                   <button className="iconbtn" onClick={() => copy(alt)}>Copy alt</button>
                 </div>
               )}
@@ -445,8 +433,8 @@ function AltTextSection({
                 <div className="reader-empty"><span className="big">Reading the image…</span></div>
               ) : alt ? (
                 <>
-                  <p style={{ margin: "0 0 6px" }}><strong className="eyebrow" style={{ display: "block", marginBottom: 4 }}>Alt text</strong>{alt}</p>
-                  <p style={{ margin: "14px 0 0" }}><strong className="eyebrow" style={{ display: "block", marginBottom: 4 }}>Longer description</strong>{long}</p>
+                  <p style={{ margin: "0 0 4px" }}><span className="eyebrow" style={{ display: "block", marginBottom: 5 }}>Alt text</span>{alt}</p>
+                  <p style={{ margin: "16px 0 0" }}><span className="eyebrow" style={{ display: "block", marginBottom: 5 }}>Longer description</span>{long}</p>
                 </>
               ) : err ? (
                 <p className="err" role="alert">{err}</p>
