@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSpeech } from "./useSpeech";
 
 type Step = { heading: string; anchor: string; explanation: string; emoji: string };
 type Rect = { x: number; y: number; w: number; h: number };
@@ -51,8 +52,8 @@ export default function PdfGuide({ lang }: { lang: string }) {
   const [steps, setSteps] = useState<Step[]>([]);
   const [stepIndex, setStepIndex] = useState(0);
   const [err, setErr] = useState("");
-  const [speaking, setSpeaking] = useState(false);
   const [over, setOver] = useState(false);
+  const { speak, speaking } = useSpeech(lang);
 
   const viewerRef = useRef<HTMLDivElement>(null);
   const pagesRef = useRef<PageData[]>([]);
@@ -73,7 +74,14 @@ export default function PdfGuide({ lang }: { lang: string }) {
     pages[loc.page].overlay.appendChild(box);
     const wrap = pages[loc.page].wrapper;
     const cont = viewerRef.current;
-    if (cont) cont.scrollTo({ top: wrap.offsetTop + loc.rect.y - 90, behavior: "smooth" });
+    if (cont) {
+      // Measure the highlight relative to the scroll container (offsetTop is
+      // unreliable here because the wrapper's offsetParent isn't the viewer).
+      const contRect = cont.getBoundingClientRect();
+      const wrapRect = wrap.getBoundingClientRect();
+      const target = cont.scrollTop + (wrapRect.top - contRect.top) + loc.rect.y - 90;
+      cont.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
+    }
   }, []);
 
   useEffect(() => { if (status === "ready") drawHighlight(stepIndex); }, [stepIndex, status, drawHighlight]);
@@ -154,20 +162,6 @@ export default function PdfGuide({ lang }: { lang: string }) {
       setStatus("error");
     }
   }, [lang]);
-
-  const speak = useCallback((text: string) => {
-    if (!("speechSynthesis" in window)) return;
-    if (speechSynthesis.speaking) { speechSynthesis.cancel(); setSpeaking(false); return; }
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = 0.95;
-    const map: Record<string, string> = { es: "es-ES", fr: "fr-FR", zh: "zh-CN", hi: "hi-IN", ar: "ar-SA", pt: "pt-BR", vi: "vi-VN", de: "de-DE", ja: "ja-JP", tl: "fil-PH" };
-    if (lang !== "none" && map[lang]) u.lang = map[lang];
-    u.onend = () => setSpeaking(false);
-    u.onerror = () => setSpeaking(false);
-    setSpeaking(true);
-    speechSynthesis.speak(u);
-  }, [lang]);
-  useEffect(() => () => { if (typeof window !== "undefined") window.speechSynthesis?.cancel(); }, []);
 
   const step = steps[stepIndex];
   const hasLoc = status === "ready" && locsRef.current[stepIndex] != null;

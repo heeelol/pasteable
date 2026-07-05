@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PdfGuide from "./PdfGuide";
+import { useSpeech } from "./useSpeech";
 
 /* ---------------- config ---------------- */
 const LEVELS = [
@@ -88,7 +89,6 @@ export default function Page() {
   const [mode, setMode] = useState<"live" | "demo" | null>(null);
   const [err, setErr] = useState("");
   const [sweep, setSweep] = useState(false);
-  const [speaking, setSpeaking] = useState(false);
 
   const [tab, setTab] = useState<"read" | "visual">("read");
   const [visual, setVisual] = useState<Visual | null>(null);
@@ -225,19 +225,7 @@ export default function Page() {
     }
   }, []);
 
-  const speak = useCallback((text: string) => {
-    if (!("speechSynthesis" in window)) { setErr("Read-aloud isn't supported in this browser."); return; }
-    if (speechSynthesis.speaking) { speechSynthesis.cancel(); setSpeaking(false); return; }
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = 0.95;
-    const map: Record<string, string> = { es: "es-ES", fr: "fr-FR", zh: "zh-CN", hi: "hi-IN", ar: "ar-SA", pt: "pt-BR", vi: "vi-VN", de: "de-DE", ja: "ja-JP", tl: "fil-PH" };
-    if (lang !== "none" && map[lang]) u.lang = map[lang];
-    u.onend = () => setSpeaking(false);
-    u.onerror = () => setSpeaking(false);
-    setSpeaking(true);
-    speechSynthesis.speak(u);
-  }, [lang]);
-  useEffect(() => () => { if (typeof window !== "undefined") window.speechSynthesis?.cancel(); }, []);
+  const { speak, speaking } = useSpeech(lang);
 
   const copy = useCallback((t: string) => { navigator.clipboard?.writeText(t).catch(() => {}); }, []);
   const scrollToBench = () => document.getElementById("workbench")?.scrollIntoView({ behavior: "smooth" });
@@ -267,7 +255,7 @@ export default function Page() {
         <section className="hero">
           <div className="wrap hero-grid">
             <div>
-              <p className="eyebrow">Accessibility · Built for the CTRL+V Hackathon</p>
+              <p className="eyebrow">Accessibility · Plain language, pictures, and voice</p>
               <h1>Paste anything. Read it <span className="mark">your way.</span></h1>
               <p className="lede">
                 Dense forms, letters, and fine print shouldn&apos;t decide who gets to understand them.
