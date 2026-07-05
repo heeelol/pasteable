@@ -1,0 +1,253 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+
+type Step = { heading: string; anchor: string; explanation: string; emoji: string };
+type Rect = { x: number; y: number; w: number; h: number };
+type PageData = { items: { str: string; x: number; y: number; w: number; h: number }[]; wrapper: HTMLDivElement; overlay: HTMLDivElement };
+type Loc = { page: number; rect: Rect } | null;
+type Status = "idle" | "rendering" | "analyzing" | "ready" | "error";
+
+const MAX_PAGES = 12;
+
+function findAnchor(pages: PageData[], anchor: string): Loc {
+  const want = anchor.toLowerCase().replace(/\s+/g, " ").trim();
+  if (want.length < 3) return null;
+  const tries = [want, want.split(" ").slice(0, 6).join(" ")];
+  for (const probe of tries) {
+    for (let p = 0; p < pages.length; p++) {
+      const items = pages[p].items;
+      let concat = "";
+      const charItem: number[] = [];
+      items.forEach((it, idx) => {
+        if (concat.length) { concat += " "; charItem.push(-1); }
+        for (let k = 0; k < it.str.length; k++) charItem.push(idx);
+        concat += it.str;
+      });
+      const hay = concat.toLowerCase();
+      const at = hay.indexOf(probe);
+      if (at === -1) continue;
+      const used = new Set<number>();
+      for (let c = at; c < at + probe.length && c < charItem.length; c++) {
+        if (charItem[c] >= 0) used.add(charItem[c]);
+      }
+      if (!used.size) continue;
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      used.forEach((i) => {
+        const it = items[i];
+        x0 = Math.min(x0, it.x); y0 = Math.min(y0, it.y);
+        x1 = Math.max(x1, it.x + it.w); y1 = Math.max(y1, it.y + it.h);
+      });
+      return { page: p, rect: { x: x0 - 3, y: y0 - 3, w: x1 - x0 + 6, h: y1 - y0 + 6 } };
+    }
+  }
+  return null;
+}
+
+export default function PdfGuide({ lang }: { lang: string }) {
+  const [status, setStatus] = useState<Status>("idle");
+  const [fileName, setFileName] = useState("");
+  const [title, setTitle] = useState("");
+  const [steps, setSteps] = useState<Step[]>([]);
+  const [stepIndex, setStepIndex] = useState(0);
+  const [err, setErr] = useState("");
+  const [speaking, setSpeaking] = useState(false);
+  const [over, setOver] = useState(false);
+
+  const viewerRef = useRef<HTMLDivElement>(null);
+  const pagesRef = useRef<PageData[]>([]);
+  const locsRef = useRef<Loc[]>([]);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const drawHighlight = useCallback((idx: number) => {
+    const pages = pagesRef.current;
+    pages.forEach((p) => { p.overlay.innerHTML = ""; });
+    const loc = locsRef.current[idx];
+    if (!loc || !pages[loc.page]) return;
+    const box = document.createElement("div");
+    box.className = "hl";
+    box.style.left = loc.rect.x + "px";
+    box.style.top = loc.rect.y + "px";
+    box.style.width = loc.rect.w + "px";
+    box.style.height = loc.rect.h + "px";
+    pages[loc.page].overlay.appendChild(box);
+    const wrap = pages[loc.page].wrapper;
+    const cont = viewerRef.current;
+    if (cont) cont.scrollTo({ top: wrap.offsetTop + loc.rect.y - 90, behavior: "smooth" });
+  }, []);
+
+  useEffect(() => { if (status === "ready") drawHighlight(stepIndex); }, [stepIndex, status, drawHighlight]);
+
+  const loadPdf = useCallback(async (file: File) => {
+    setErr("");
+    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+      setErr("Please choose a PDF file."); return;
+    }
+    setFileName(file.name);
+    setStatus("rendering");
+    setSteps([]); setStepIndex(0); setTitle("");
+    try {
+      const pdfjs = await import("pdfjs-dist");
+      pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+      const data = await file.arrayBuffer();
+      const doc = await pdfjs.getDocument({ data }).promise;
+      const container = viewerRef.current!;
+      container.innerHTML = "";
+      const N = Math.min(doc.numPages, MAX_PAGES);
+      const colWidth = container.clientWidth || 620;
+      const pages: PageData[] = [];
+
+      for (let n = 1; n <= N; n++) {
+        const page = await doc.getPage(n);
+        const base = page.getViewport({ scale: 1 });
+        const scale = Math.min(2, Math.max(0.6, (colWidth - 26) / base.width));
+        const viewport = page.getViewport({ scale });
+        const wrapper = document.createElement("div");
+        wrapper.className = "pdf-page";
+        wrapper.style.width = viewport.width + "px";
+        wrapper.style.height = viewport.height + "px";
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.floor(viewport.width);
+        canvas.height = Math.floor(viewport.height);
+        const overlay = document.createElement("div");
+        overlay.className = "pdf-overlay";
+        wrapper.appendChild(canvas);
+        wrapper.appendChild(overlay);
+        container.appendChild(wrapper);
+        const ctx = canvas.getContext("2d")!;
+        await page.render({ canvas, canvasContext: ctx, viewport }).promise;
+        const tc = await page.getTextContent();
+        const items = tc.items
+          .filter((it): it is import("pdfjs-dist/types/src/display/api").TextItem => "str" in it)
+          .map((it) => {
+            const t = pdfjs.Util.transform(viewport.transform, it.transform);
+            const fh = Math.hypot(t[1], t[3]) || 10;
+            return { str: it.str, x: t[4], y: t[5] - fh, w: (it.width || 0) * scale, h: fh * 1.18 };
+          })
+          .filter((it) => it.str.trim().length > 0);
+        pages.push({ items, wrapper, overlay });
+      }
+      pagesRef.current = pages;
+
+      const docText = pages.map((p) => p.items.map((i) => i.str).join(" ")).join("\n\n").trim();
+      if (docText.length < 40) {
+        setErr("This PDF has no selectable text (it may be a scan), so it can't be walked through yet.");
+        setStatus("error"); return;
+      }
+
+      setStatus("analyzing");
+      const res = await fetch("/api/guide", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: docText, lang }),
+      });
+      const g = await res.json();
+      if (g.error) { setErr(g.error); setStatus("error"); return; }
+      const gSteps: Step[] = g.steps ?? [];
+      locsRef.current = gSteps.map((s) => findAnchor(pages, s.anchor));
+      setTitle(g.title ?? "Document walkthrough");
+      setSteps(gSteps);
+      setStepIndex(0);
+      setStatus("ready");
+    } catch {
+      setErr("Could not open that PDF. Try another file.");
+      setStatus("error");
+    }
+  }, [lang]);
+
+  const speak = useCallback((text: string) => {
+    if (!("speechSynthesis" in window)) return;
+    if (speechSynthesis.speaking) { speechSynthesis.cancel(); setSpeaking(false); return; }
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 0.95;
+    const map: Record<string, string> = { es: "es-ES", fr: "fr-FR", zh: "zh-CN", hi: "hi-IN", ar: "ar-SA", pt: "pt-BR", vi: "vi-VN", de: "de-DE", ja: "ja-JP", tl: "fil-PH" };
+    if (lang !== "none" && map[lang]) u.lang = map[lang];
+    u.onend = () => setSpeaking(false);
+    u.onerror = () => setSpeaking(false);
+    setSpeaking(true);
+    speechSynthesis.speak(u);
+  }, [lang]);
+  useEffect(() => () => { if (typeof window !== "undefined") window.speechSynthesis?.cancel(); }, []);
+
+  const step = steps[stepIndex];
+  const hasLoc = status === "ready" && locsRef.current[stepIndex] != null;
+
+  return (
+    <section className="bench" style={{ paddingTop: 44 }} aria-label="Guided PDF walkthrough" id="guide">
+      <div className="wrap">
+        <div className="section-label">
+          <h2>Walk me through a PDF</h2>
+          <p>Upload a form or contract. Get guided, step by step, with each part highlighted and explained.</p>
+        </div>
+
+        {status === "idle" || status === "error" ? (
+          <div
+            className={`drop${over ? " over" : ""}`}
+            style={{ minHeight: 200 }}
+            onDragOver={(e) => { e.preventDefault(); setOver(true); }}
+            onDragLeave={() => setOver(false)}
+            onDrop={(e) => { e.preventDefault(); setOver(false); const f = e.dataTransfer.files[0]; if (f) loadPdf(f); }}
+            onClick={() => inputRef.current?.click()}
+            role="button" tabIndex={0}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") inputRef.current?.click(); }}
+            aria-label="Upload a PDF to walk through"
+          >
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4" /><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z" /><path d="M9 13h6M9 17h4" /></svg>
+            <p><strong>Drop or click</strong> to choose a PDF form or contract.</p>
+            {err && <p className="err" role="alert">{err}</p>}
+            <input ref={inputRef} type="file" accept="application/pdf,.pdf" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) loadPdf(f); e.currentTarget.value = ""; }} />
+          </div>
+        ) : (
+          <div className="guide-grid">
+            {/* PDF viewer */}
+            <div className="guide-doc">
+              <div className="guide-doc-head">
+                <span className="panel-title" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fileName}</span>
+                <button className="iconbtn" onClick={() => { setStatus("idle"); pagesRef.current = []; }}>New PDF</button>
+              </div>
+              <div className="guide-viewer" ref={viewerRef} />
+            </div>
+
+            {/* step panel */}
+            <aside className="guide-panel">
+              {status !== "ready" ? (
+                <div className="guide-loading">
+                  <span className="spinner" aria-hidden="true" />
+                  <p className="big">{status === "rendering" ? "Opening the document…" : "Reading it for you…"}</p>
+                  <p style={{ color: "var(--muted)", fontSize: "0.9rem" }}>Finding the parts that matter and putting them in plain words.</p>
+                </div>
+              ) : step ? (
+                <>
+                  <div className="guide-progress">
+                    <span className="eyebrow">Step {stepIndex + 1} of {steps.length}</span>
+                    <div className="progress-dots">
+                      {steps.map((_, i) => (
+                        <button key={i} className={`pdot${i === stepIndex ? " on" : ""}`} onClick={() => setStepIndex(i)} aria-label={`Go to step ${i + 1}`} />
+                      ))}
+                    </div>
+                  </div>
+                  {title && <p className="guide-title">{title}</p>}
+                  <div className="guide-step">
+                    <span className="step-emoji" aria-hidden="true">{step.emoji || "📌"}</span>
+                    <h3>{step.heading}</h3>
+                    <p className="step-explain" aria-live="polite">{step.explanation}</p>
+                    {!hasLoc && <p className="step-note">This part is in the document text; it could not be pinpointed on the page.</p>}
+                  </div>
+                  <div className="guide-actions">
+                    <button className="iconbtn" onClick={() => speak(`${step.heading}. ${step.explanation}`)} aria-pressed={speaking}>{speaking ? "Stop" : "▶ Read aloud"}</button>
+                    <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
+                      <button className="btn ghost" onClick={() => setStepIndex((i) => Math.max(0, i - 1))} disabled={stepIndex === 0}>Back</button>
+                      {stepIndex < steps.length - 1
+                        ? <button className="btn" onClick={() => setStepIndex((i) => Math.min(steps.length - 1, i + 1))}>Next</button>
+                        : <button className="btn" onClick={() => setStepIndex(0)}>Start over</button>}
+                    </div>
+                  </div>
+                </>
+              ) : null}
+            </aside>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}

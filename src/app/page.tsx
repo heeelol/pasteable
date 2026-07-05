@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import PdfGuide from "./PdfGuide";
 
 /* ---------------- config ---------------- */
 const LEVELS = [
@@ -445,6 +446,9 @@ export default function Page() {
             )}
           </div>
         </section>
+
+        {/* guided PDF walkthrough */}
+        <PdfGuide lang={lang} />
 
         {/* image alt-text */}
         <AltTextSection speak={speak} copy={copy} speaking={speaking} />

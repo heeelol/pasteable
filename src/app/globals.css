@@ -357,3 +357,44 @@ a { color: var(--accent); }
 
 .illus-row { display: flex; justify-content: center; padding-top: 4px; }
 .illus { max-width: 100%; width: 340px; border-radius: 14px; border: 1px solid var(--line); box-shadow: var(--shadow); }
+
+/* ---------- guided PDF walkthrough ---------- */
+.guide-grid { display: grid; grid-template-columns: 1fr 380px; gap: 18px; align-items: start; }
+@media (max-width: 900px) { .guide-grid { grid-template-columns: 1fr; } }
+
+.guide-doc { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-sm); overflow: hidden; }
+.guide-doc-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--line-soft); }
+.guide-viewer { height: 620px; overflow-y: auto; padding: 18px; background: var(--paper-2); scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { .guide-viewer { scroll-behavior: auto; } }
+
+.pdf-page { position: relative; margin: 0 auto 16px; background: #fff; box-shadow: 0 2px 14px -6px rgba(0,0,0,0.35); border-radius: 3px; }
+.pdf-page canvas { display: block; border-radius: 3px; }
+.pdf-overlay { position: absolute; inset: 0; pointer-events: none; }
+.hl {
+  position: absolute; border-radius: 4px;
+  background: color-mix(in srgb, var(--highlight) 42%, transparent);
+  box-shadow: 0 0 0 2px var(--accent), 0 0 0 6px color-mix(in srgb, var(--accent) 25%, transparent);
+  animation: hlpulse 1.4s ease-in-out infinite;
+}
+@keyframes hlpulse { 0%, 100% { box-shadow: 0 0 0 2px var(--accent), 0 0 0 5px color-mix(in srgb, var(--accent) 22%, transparent); } 50% { box-shadow: 0 0 0 2px var(--accent), 0 0 0 9px color-mix(in srgb, var(--accent) 10%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .hl { animation: none; } }
+
+.guide-panel { position: sticky; top: 82px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-sm); padding: 20px; min-height: 340px; display: flex; flex-direction: column; }
+.guide-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 10px; flex: 1; padding: 20px; }
+.guide-loading .big { font-family: var(--font-display); font-size: 1.15rem; font-weight: 700; margin: 0; }
+.spinner { width: 30px; height: 30px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--accent); animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.guide-progress { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.progress-dots { display: flex; gap: 6px; flex-wrap: wrap; }
+.pdot { width: 9px; height: 9px; border-radius: 50%; border: 0; padding: 0; background: var(--line); cursor: pointer; transition: background 0.15s, transform 0.15s; }
+.pdot:hover { background: var(--muted); }
+.pdot.on { background: var(--accent); transform: scale(1.3); }
+
+.guide-title { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.02em; color: var(--muted); margin: 0 0 14px; }
+.guide-step { flex: 1; }
+.step-emoji { font-size: 2.6rem; line-height: 1; display: block; margin-bottom: 10px; }
+.guide-step h3 { font-family: var(--font-display); font-size: 1.3rem; letter-spacing: -0.01em; margin: 0 0 10px; }
+.step-explain { font-size: 1.1rem; line-height: 1.6; color: var(--ink); margin: 0; }
+.step-note { font-size: 0.82rem; color: var(--muted); margin: 12px 0 0; }
+.guide-actions { display: flex; align-items: center; gap: 8px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line-soft); flex-wrap: wrap; }
