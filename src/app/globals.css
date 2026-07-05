@@ -19,6 +19,9 @@
   --accent-ink: #ffffff;
   --highlight: #ffe14a;   /* highlighter yellow, the clarity mark */
   --good: #197a54;
+  --lvl-high: #d64545;
+  --lvl-medium: #bd851b;
+  --lvl-low: #2f9e6b;
   --card: #ffffff;
   --shadow-sm: 0 1px 2px rgba(28, 29, 34, 0.05);
   --shadow: 0 1px 0 rgba(28, 29, 34, 0.03), 0 22px 48px -30px rgba(28, 29, 34, 0.30);
@@ -43,6 +46,9 @@
   --accent-ink: #0b0b10;
   --highlight: #ffe14a;
   --good: #4cd8a0;
+  --lvl-high: #ff8072;
+  --lvl-medium: #e6b23c;
+  --lvl-low: #4cd8a0;
   --card: #17171e;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow: 0 1px 0 rgba(0, 0, 0, 0.4), 0 26px 52px -30px rgba(0, 0, 0, 0.8);
@@ -386,26 +392,44 @@ a { color: var(--accent); }
 .pdf-page { position: relative; margin: 0 auto 16px; background: #fff; box-shadow: 0 2px 14px -6px rgba(0,0,0,0.35); border-radius: 3px; }
 .pdf-page canvas { display: block; border-radius: 3px; }
 .pdf-overlay { position: absolute; inset: 0; pointer-events: none; }
+/* risk levels: a shared --mk color drives markers, highlights, dots, badges */
+.lvl-high { --mk: var(--lvl-high); }
+.lvl-medium { --mk: var(--lvl-medium); }
+.lvl-low { --mk: var(--lvl-low); }
+
 .hl {
   position: absolute; border-radius: 4px;
-  background: color-mix(in srgb, var(--highlight) 42%, transparent);
-  box-shadow: 0 0 0 2px var(--accent), 0 0 0 6px color-mix(in srgb, var(--accent) 25%, transparent);
+  background: color-mix(in srgb, var(--mk, var(--accent)) 26%, transparent);
+  box-shadow: 0 0 0 2px var(--mk, var(--accent)), 0 0 0 6px color-mix(in srgb, var(--mk, var(--accent)) 25%, transparent);
   animation: hlpulse 1.4s ease-in-out infinite;
 }
-@keyframes hlpulse { 0%, 100% { box-shadow: 0 0 0 2px var(--accent), 0 0 0 5px color-mix(in srgb, var(--accent) 22%, transparent); } 50% { box-shadow: 0 0 0 2px var(--accent), 0 0 0 9px color-mix(in srgb, var(--accent) 10%, transparent); } }
+@keyframes hlpulse { 0%, 100% { box-shadow: 0 0 0 2px var(--mk, var(--accent)), 0 0 0 5px color-mix(in srgb, var(--mk, var(--accent)) 22%, transparent); } 50% { box-shadow: 0 0 0 2px var(--mk, var(--accent)), 0 0 0 9px color-mix(in srgb, var(--mk, var(--accent)) 10%, transparent); } }
 @media (prefers-reduced-motion: reduce) { .hl { animation: none; } }
 
-/* clickable numbered step markers on the document */
+/* clickable numbered step markers on the document, colored by risk */
 .pdf-marker {
   position: absolute; transform: translate(-50%, -50%);
   min-width: 22px; height: 22px; padding: 0 5px; pointer-events: auto;
   display: grid; place-items: center; border-radius: 999px; cursor: pointer;
-  background: var(--card); color: var(--accent); border: 2px solid var(--accent);
+  background: var(--card); color: var(--mk, var(--accent)); border: 2px solid var(--mk, var(--accent));
   font-family: var(--font-mono); font-weight: 700; font-size: 0.72rem; line-height: 1;
   box-shadow: 0 2px 6px -2px rgba(0,0,0,0.4); transition: transform 0.12s, background 0.12s;
 }
 .pdf-marker:hover { transform: translate(-50%, -50%) scale(1.15); }
-.pdf-marker.active { background: var(--accent); color: var(--accent-ink); transform: translate(-50%, -50%) scale(1.15); }
+.pdf-marker.active { background: var(--mk, var(--accent)); color: #fff; transform: translate(-50%, -50%) scale(1.15); }
+
+/* risk radar summary + badges */
+.risk-summary { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 12px; }
+.risk-tag, .lvl-badge {
+  font-family: var(--font-mono); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.02em;
+  padding: 4px 9px; border-radius: 999px; white-space: nowrap;
+  color: var(--mk); background: color-mix(in srgb, var(--mk) 14%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--mk) 40%, var(--line));
+}
+.lvl-badge { text-transform: uppercase; letter-spacing: 0.06em; }
+.risk-filter { display: inline-flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--paper-2); border: 1px solid var(--line); margin-bottom: 16px; max-width: 100%; }
+.step-top { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.step-top .step-emoji { margin-bottom: 0; }
 
 .guide-panel { position: sticky; top: 82px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-sm); padding: 20px; min-height: 340px; display: flex; flex-direction: column; }
 .guide-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 10px; flex: 1; padding: 20px; }
@@ -415,9 +439,9 @@ a { color: var(--accent); }
 
 .guide-progress { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .progress-dots { display: flex; gap: 6px; flex-wrap: wrap; }
-.pdot { width: 9px; height: 9px; border-radius: 50%; border: 0; padding: 0; background: var(--line); cursor: pointer; transition: background 0.15s, transform 0.15s; }
-.pdot:hover { background: var(--muted); }
-.pdot.on { background: var(--accent); transform: scale(1.3); }
+.pdot { width: 9px; height: 9px; border-radius: 50%; border: 0; padding: 0; background: color-mix(in srgb, var(--mk, var(--muted)) 42%, var(--line)); cursor: pointer; transition: background 0.15s, transform 0.15s; }
+.pdot:hover { background: color-mix(in srgb, var(--mk, var(--muted)) 70%, var(--line)); }
+.pdot.on { background: var(--mk, var(--accent)); transform: scale(1.35); }
 
 .guide-title { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.02em; color: var(--muted); margin: 0 0 14px; }
 .guide-step { flex: 1; }

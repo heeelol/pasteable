@@ -31,10 +31,11 @@ function system(lang: string, mode: "key" | "full"): string {
 ${extraction}
 
 Return a JSON object shaped exactly like:
-{ "steps": [ { "heading": "a short label for this point", "anchor": "a phrase copied WORD FOR WORD from the section text so it can be found and highlighted", "explanation": "1 to 3 short, plain sentences saying what this means and what, if anything, the reader must do", "emoji": "one emoji that pictures this point" } ] }
+{ "steps": [ { "heading": "a short label for this point", "anchor": "a phrase copied WORD FOR WORD from the section text so it can be found and highlighted", "explanation": "1 to 3 short, plain sentences saying what this means and what, if anything, the reader must do", "emoji": "one emoji that pictures this point", "level": "high" } ] }
 
 Rules:
 - The "anchor" MUST be an exact substring of the section text (5 to 12 words), copied verbatim including spelling and punctuation. Pick a distinctive phrase. Do not paraphrase the anchor.
+- Set "level" to one of "high", "medium", or "low", based on how much this point could affect the reader. Use "high" if it could cost them money, create a bill or fee, take away a right, lock them into an obligation, or has a deadline they could miss. Use "medium" if it is important to understand but lower stakes. Use "low" if it is routine or administrative.
 - One step per distinct point. Keep every important number, date, and amount in the explanation.
 - Keep the points in the order they appear in the section.
 - Never use em dashes. Output ONLY the JSON object, no markdown fences.`;
@@ -42,7 +43,7 @@ Rules:
   return s;
 }
 
-type Step = { heading: string; anchor: string; explanation: string; emoji: string };
+type Step = { heading: string; anchor: string; explanation: string; emoji: string; level?: "high" | "medium" | "low" };
 
 function chunkText(text: string): string[] {
   const paras = text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
@@ -111,11 +112,13 @@ export async function POST(req: Request) {
   if (!openaiKey && !anthropicKey) {
     const paras = text.split(/\n{2,}|(?<=[.!?])\s+/).map((p) => p.trim()).filter((p) => p.length > 25);
     const emojis = ["📌", "💵", "⏰", "✍️", "⚠️", "📞", "✅", "📄"];
+    const riskWord = /\b(fee|pay|cost|\$|penalt|late|deadline|days|terminat|cancel|waive|liabilit|auto|renew)/i;
     const steps: Step[] = paras.slice(0, mode === "key" ? 8 : 30).map((p, i) => ({
       heading: `Part ${i + 1}`,
       anchor: p.split(/\s+/).slice(0, 8).join(" "),
       explanation: p.length > 170 ? p.slice(0, 168) + "…" : p,
       emoji: emojis[i % emojis.length],
+      level: (riskWord.test(p) ? "high" : "medium") as "high" | "medium" | "low",
     }));
     return Response.json({ mode: "demo", title: "Document walkthrough (demo mode)", steps });
   }

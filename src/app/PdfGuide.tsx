@@ -1,15 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSpeech } from "./useSpeech";
 
-type Step = { heading: string; anchor: string; explanation: string; emoji: string };
+type Level = "high" | "medium" | "low";
+type Step = { heading: string; anchor: string; explanation: string; emoji: string; level?: Level };
 type Rect = { x: number; y: number; w: number; h: number };
 type PageData = { items: { str: string; x: number; y: number; w: number; h: number }[]; wrapper: HTMLDivElement; overlay: HTMLDivElement };
 type Loc = { page: number; rect: Rect } | null;
 type Status = "idle" | "rendering" | "analyzing" | "ready" | "error";
 
 const MAX_PAGES = 25;
+
+const LEVEL_META: Record<Level, { label: string; cls: string }> = {
+  high: { label: "Could cost you", cls: "lvl-high" },
+  medium: { label: "Worth knowing", cls: "lvl-medium" },
+  low: { label: "Routine", cls: "lvl-low" },
+};
+const lvlOf = (s?: Step): Level => (s?.level === "high" || s?.level === "low" ? s.level : "medium");
 
 function findAnchor(pages: PageData[], anchor: string): Loc {
   const want = anchor.toLowerCase().replace(/\s+/g, " ").trim();
@@ -54,6 +62,7 @@ export default function PdfGuide({ lang }: { lang: string }) {
   const [err, setErr] = useState("");
   const [over, setOver] = useState(false);
   const [mode, setMode] = useState<"key" | "full">("full");
+  const [filter, setFilter] = useState<"all" | "risk">("all");
 
   const { speak, stop } = useSpeech(lang);
   const docTextRef = useRef("");
@@ -67,6 +76,18 @@ export default function PdfGuide({ lang }: { lang: string }) {
   const jumpRef = useRef<(i: number) => void>(() => {});
   jumpRef.current = (i: number) => setStepIndex(i);
 
+  // ordered list of visible step indices, honoring the risk filter
+  const order = useMemo(
+    () => steps.map((_, i) => i).filter((i) => filter === "all" || lvlOf(steps[i]) !== "low"),
+    [steps, filter]
+  );
+  const pos = Math.max(0, order.indexOf(stepIndex));
+  const counts = useMemo(() => {
+    const c = { high: 0, medium: 0, low: 0 };
+    steps.forEach((s) => { c[lvlOf(s)]++; });
+    return c;
+  }, [steps]);
+
   const renderMarkers = useCallback(() => {
     const pages = pagesRef.current;
     const locs = locsRef.current;
@@ -75,9 +96,11 @@ export default function PdfGuide({ lang }: { lang: string }) {
     const markers: (HTMLButtonElement | null)[] = [];
     locs.forEach((loc, i) => {
       if (!loc || !pages[loc.page]) { markers[i] = null; return; }
+      const level = lvlOf(steps[i]);
       const m = document.createElement("button");
-      m.className = "pdf-marker";
+      m.className = `pdf-marker ${LEVEL_META[level].cls}`;
       m.type = "button";
+      m.dataset.level = level;
       m.textContent = String(i + 1);
       m.setAttribute("aria-label", `Go to step ${i + 1}`);
       m.style.left = loc.rect.x + "px";
@@ -87,7 +110,7 @@ export default function PdfGuide({ lang }: { lang: string }) {
       markers[i] = m;
     });
     markersRef.current = markers;
-  }, []);
+  }, [steps]);
 
   const drawHighlight = useCallback((idx: number) => {
     const pages = pagesRef.current;
@@ -96,7 +119,7 @@ export default function PdfGuide({ lang }: { lang: string }) {
     const loc = locsRef.current[idx];
     if (!loc || !pages[loc.page]) return;
     const box = document.createElement("div");
-    box.className = "hl";
+    box.className = `hl ${LEVEL_META[lvlOf(steps[idx])].cls}`;
     box.style.left = loc.rect.x + "px";
     box.style.top = loc.rect.y + "px";
     box.style.width = loc.rect.w + "px";
@@ -111,36 +134,42 @@ export default function PdfGuide({ lang }: { lang: string }) {
       const target = cont.scrollTop + (wrapRect.top - contRect.top) + loc.rect.y - 90;
       cont.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
     }
-  }, []);
+  }, [steps]);
 
   useEffect(() => { if (status === "ready") drawHighlight(stepIndex); }, [stepIndex, status, drawHighlight]);
 
-  // auto-play: read each step aloud and advance
+  // apply the risk filter to on-document markers, and keep the current step visible
+  useEffect(() => {
+    if (status !== "ready") return;
+    markersRef.current.forEach((m) => { if (m) m.style.display = filter === "risk" && m.dataset.level === "low" ? "none" : ""; });
+    if (order.length && !order.includes(stepIndex)) setStepIndex(order[0]);
+  }, [filter, status, order, stepIndex]);
+
+  // auto-play: read each visible step and advance
   useEffect(() => {
     if (status !== "ready" || !playing) return;
     const s = steps[stepIndex];
     if (!s) { setPlaying(false); return; }
     speak(`${s.heading}. ${s.explanation}`, () => {
-      setStepIndex((i) => {
-        if (i < steps.length - 1) return i + 1;
-        setPlaying(false);
-        return i;
-      });
+      const p = order.indexOf(stepIndex);
+      if (p >= 0 && p < order.length - 1) setStepIndex(order[p + 1]);
+      else setPlaying(false);
     });
-  }, [playing, stepIndex, status, steps, speak]);
+  }, [playing, stepIndex, status, steps, order, speak]);
 
-  // keyboard navigation
+  // keyboard navigation through the visible order
   useEffect(() => {
     if (status !== "ready") return;
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
-      if (e.key === "ArrowRight") { e.preventDefault(); setStepIndex((i) => Math.min(steps.length - 1, i + 1)); }
-      else if (e.key === "ArrowLeft") { e.preventDefault(); setStepIndex((i) => Math.max(0, i - 1)); }
+      const p = order.indexOf(stepIndex);
+      if (e.key === "ArrowRight" && p < order.length - 1) { e.preventDefault(); setStepIndex(order[p + 1]); }
+      else if (e.key === "ArrowLeft" && p > 0) { e.preventDefault(); setStepIndex(order[p - 1]); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [status, steps.length]);
+  }, [status, order, stepIndex]);
 
   const analyze = useCallback(async (docText: string, m: "key" | "full", initial: boolean) => {
     setErr(""); stop(); setPlaying(false); setStatus("analyzing");
@@ -154,8 +183,6 @@ export default function PdfGuide({ lang }: { lang: string }) {
       if (g.error) { setErr(g.error); setStatus(initial ? "error" : "ready"); return; }
       const gSteps: Step[] = g.steps ?? [];
       locsRef.current = gSteps.map((s) => findAnchor(pagesRef.current, s.anchor));
-      renderMarkers();
-      setTitle(g.title ?? "Your document, in plain words");
       setSteps(gSteps);
       setStepIndex(0);
       setStatus("ready");
@@ -163,20 +190,26 @@ export default function PdfGuide({ lang }: { lang: string }) {
       setErr("Could not analyze this document.");
       setStatus(initial ? "error" : "ready");
     }
-  }, [lang, renderMarkers, stop]);
+  }, [lang, stop]);
+
+  // re-render markers whenever steps change (after analyze)
+  useEffect(() => {
+    if (status !== "ready") return;
+    renderMarkers();
+    markersRef.current.forEach((m) => { if (m) m.style.display = filter === "risk" && m.dataset.level === "low" ? "none" : ""; });
+    drawHighlight(0);
+  }, [steps]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const changeMode = useCallback((m: "key" | "full") => {
     if (m === mode) return;
     setMode(m);
-    if (docTextRef.current && status !== "rendering" && status !== "analyzing") {
-      analyze(docTextRef.current, m, false);
-    }
+    if (docTextRef.current && status !== "rendering" && status !== "analyzing") analyze(docTextRef.current, m, false);
   }, [mode, status, analyze]);
 
   const loadPdf = useCallback(async (file: File) => {
     setErr("");
     if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) { setErr("Please choose a PDF file."); return; }
-    stop(); setPlaying(false);
+    stop(); setPlaying(false); setFilter("all");
     setFileName(file.name);
     setStatus("rendering");
     setSteps([]); setStepIndex(0); setTitle("");
@@ -225,7 +258,6 @@ export default function PdfGuide({ lang }: { lang: string }) {
 
       const docText = pages.map((p) => p.items.map((i) => i.str).join(" ")).join("\n\n").trim();
       if (docText.length < 40) { setErr("This PDF has no selectable text (it may be a scan), so it can't be walked through yet."); setStatus("error"); return; }
-
       docTextRef.current = docText;
       await analyze(docText, mode, true);
     } catch {
@@ -241,7 +273,11 @@ export default function PdfGuide({ lang }: { lang: string }) {
 
   const reset = useCallback(() => { stop(); setPlaying(false); pagesRef.current = []; setStatus("idle"); }, [stop]);
 
+  const goPrev = () => { if (pos > 0) setStepIndex(order[pos - 1]); };
+  const goNext = () => { if (pos < order.length - 1) setStepIndex(order[pos + 1]); };
+
   const step = steps[stepIndex];
+  const level = lvlOf(step);
   const hasLoc = status === "ready" && locsRef.current[stepIndex] != null;
 
   return (
@@ -250,7 +286,7 @@ export default function PdfGuide({ lang }: { lang: string }) {
         <div className="guide-head">
           <div className="section-label" style={{ marginBottom: 0 }}>
             <h2>Walk me through a PDF</h2>
-            <p>Upload a form or contract. Get guided, step by step, with each part highlighted and explained aloud.</p>
+            <p>Upload a form or contract. Get guided through it, with every part highlighted, rated by risk, and explained aloud.</p>
           </div>
           <div className="mode-toggle" role="group" aria-label="Walkthrough depth">
             <button className="mode-btn" aria-pressed={mode === "key"} onClick={() => changeMode("key")} title="A curated handful of the most important points">Key points</button>
@@ -290,36 +326,49 @@ export default function PdfGuide({ lang }: { lang: string }) {
                 <div className="guide-loading">
                   <span className="spinner" aria-hidden="true" />
                   <p className="big">{status === "rendering" ? "Opening the document…" : "Reading it for you…"}</p>
-                  <p style={{ color: "var(--muted)", fontSize: "0.9rem" }}>Finding the parts that matter and putting them in plain words.</p>
+                  <p style={{ color: "var(--muted)", fontSize: "0.9rem" }}>Finding the parts that matter, rating the risk, and putting them in plain words.</p>
                 </div>
               ) : step ? (
                 <>
+                  {/* risk radar summary + filter */}
+                  <div className="risk-summary">
+                    <span className="risk-tag lvl-high">{counts.high} could cost you</span>
+                    <span className="risk-tag lvl-medium">{counts.medium} to know</span>
+                    {counts.low > 0 && <span className="risk-tag lvl-low">{counts.low} routine</span>}
+                  </div>
+                  <div className="risk-filter" role="group" aria-label="Filter by risk">
+                    <button className="mode-btn" aria-pressed={filter === "all"} onClick={() => setFilter("all")}>All parts</button>
+                    <button className="mode-btn" aria-pressed={filter === "risk"} onClick={() => setFilter("risk")}>Only risks</button>
+                  </div>
+
                   <div className="guide-progress">
-                    <span className="eyebrow">Step {stepIndex + 1} of {steps.length}</span>
+                    <span className="eyebrow">Step {pos + 1} of {order.length}</span>
                     <div className="progress-dots">
-                      {steps.map((_, i) => (
-                        <button key={i} className={`pdot${i === stepIndex ? " on" : ""}`} onClick={() => setStepIndex(i)} aria-label={`Go to step ${i + 1}`} />
+                      {order.map((idx) => (
+                        <button key={idx} className={`pdot ${LEVEL_META[lvlOf(steps[idx])].cls}${idx === stepIndex ? " on" : ""}`} onClick={() => setStepIndex(idx)} aria-label={`Go to step ${idx + 1}`} />
                       ))}
                     </div>
                   </div>
-                  <div className="guide-bar"><div className="guide-bar-fill" style={{ width: `${((stepIndex + 1) / steps.length) * 100}%` }} /></div>
-                  {title && <p className="guide-title">{title}</p>}
+                  <div className="guide-bar"><div className="guide-bar-fill" style={{ width: `${((pos + 1) / Math.max(1, order.length)) * 100}%` }} /></div>
+
                   <div className="guide-step">
-                    <span className="step-emoji" aria-hidden="true">{step.emoji || "📌"}</span>
+                    <div className="step-top">
+                      <span className="step-emoji" aria-hidden="true">{step.emoji || "📌"}</span>
+                      <span className={`lvl-badge ${LEVEL_META[level].cls}`}>{LEVEL_META[level].label}</span>
+                    </div>
                     <h3>{step.heading}</h3>
                     <p className="step-explain" aria-live="polite">{step.explanation}</p>
                     {!hasLoc && <p className="step-note">This part is in the document text; it could not be pinpointed on the page.</p>}
                   </div>
+
                   <div className="guide-actions">
-                    <button className={`btn${playing ? " ghost" : ""}`} onClick={togglePlay}>
-                      {playing ? "⏸ Pause" : "▶ Guide me through it"}
-                    </button>
+                    <button className={`btn${playing ? " ghost" : ""}`} onClick={togglePlay}>{playing ? "⏸ Pause" : "▶ Guide me through it"}</button>
                     <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
-                      <button className="iconbtn" onClick={() => setStepIndex((i) => Math.max(0, i - 1))} disabled={stepIndex === 0} aria-label="Previous step">← Back</button>
-                      <button className="iconbtn" onClick={() => setStepIndex((i) => Math.min(steps.length - 1, i + 1))} disabled={stepIndex === steps.length - 1} aria-label="Next step">Next →</button>
+                      <button className="iconbtn" onClick={goPrev} disabled={pos === 0} aria-label="Previous step">← Back</button>
+                      <button className="iconbtn" onClick={goNext} disabled={pos >= order.length - 1} aria-label="Next step">Next →</button>
                     </div>
                   </div>
-                  <p className="guide-hint">Tip: use the ← and → arrow keys, or click a numbered pin on the document.</p>
+                  <p className="guide-hint">Tip: red pins are the parts that could cost you. Use the arrow keys, or click any pin on the document.</p>
                 </>
               ) : null}
             </aside>
