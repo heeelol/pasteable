@@ -25,8 +25,7 @@ function findAnchor(pages: PageData[], anchor: string): Loc {
         for (let k = 0; k < it.str.length; k++) charItem.push(idx);
         concat += it.str;
       });
-      const hay = concat.toLowerCase();
-      const at = hay.indexOf(probe);
+      const at = concat.toLowerCase().indexOf(probe);
       if (at === -1) continue;
       const used = new Set<number>();
       for (let c = at; c < at + probe.length && c < charItem.length; c++) {
@@ -51,18 +50,47 @@ export default function PdfGuide({ lang }: { lang: string }) {
   const [title, setTitle] = useState("");
   const [steps, setSteps] = useState<Step[]>([]);
   const [stepIndex, setStepIndex] = useState(0);
+  const [playing, setPlaying] = useState(false);
   const [err, setErr] = useState("");
   const [over, setOver] = useState(false);
-  const { speak, speaking } = useSpeech(lang);
+
+  const { speak, stop } = useSpeech(lang);
 
   const viewerRef = useRef<HTMLDivElement>(null);
   const pagesRef = useRef<PageData[]>([]);
   const locsRef = useRef<Loc[]>([]);
+  const markersRef = useRef<(HTMLButtonElement | null)[]>([]);
+  const highlightRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const jumpRef = useRef<(i: number) => void>(() => {});
+  jumpRef.current = (i: number) => setStepIndex(i);
+
+  const renderMarkers = useCallback(() => {
+    const pages = pagesRef.current;
+    const locs = locsRef.current;
+    pages.forEach((p) => { p.overlay.innerHTML = ""; });
+    highlightRef.current = null;
+    const markers: (HTMLButtonElement | null)[] = [];
+    locs.forEach((loc, i) => {
+      if (!loc || !pages[loc.page]) { markers[i] = null; return; }
+      const m = document.createElement("button");
+      m.className = "pdf-marker";
+      m.type = "button";
+      m.textContent = String(i + 1);
+      m.setAttribute("aria-label", `Go to step ${i + 1}`);
+      m.style.left = loc.rect.x + "px";
+      m.style.top = loc.rect.y + "px";
+      m.onclick = (e) => { e.stopPropagation(); jumpRef.current(i); };
+      pages[loc.page].overlay.appendChild(m);
+      markers[i] = m;
+    });
+    markersRef.current = markers;
+  }, []);
 
   const drawHighlight = useCallback((idx: number) => {
     const pages = pagesRef.current;
-    pages.forEach((p) => { p.overlay.innerHTML = ""; });
+    if (highlightRef.current) { highlightRef.current.remove(); highlightRef.current = null; }
+    markersRef.current.forEach((m, j) => { if (m) m.classList.toggle("active", j === idx); });
     const loc = locsRef.current[idx];
     if (!loc || !pages[loc.page]) return;
     const box = document.createElement("div");
@@ -72,11 +100,10 @@ export default function PdfGuide({ lang }: { lang: string }) {
     box.style.width = loc.rect.w + "px";
     box.style.height = loc.rect.h + "px";
     pages[loc.page].overlay.appendChild(box);
+    highlightRef.current = box;
     const wrap = pages[loc.page].wrapper;
     const cont = viewerRef.current;
     if (cont) {
-      // Measure the highlight relative to the scroll container (offsetTop is
-      // unreliable here because the wrapper's offsetParent isn't the viewer).
       const contRect = cont.getBoundingClientRect();
       const wrapRect = wrap.getBoundingClientRect();
       const target = cont.scrollTop + (wrapRect.top - contRect.top) + loc.rect.y - 90;
@@ -86,11 +113,37 @@ export default function PdfGuide({ lang }: { lang: string }) {
 
   useEffect(() => { if (status === "ready") drawHighlight(stepIndex); }, [stepIndex, status, drawHighlight]);
 
+  // auto-play: read each step aloud and advance
+  useEffect(() => {
+    if (status !== "ready" || !playing) return;
+    const s = steps[stepIndex];
+    if (!s) { setPlaying(false); return; }
+    speak(`${s.heading}. ${s.explanation}`, () => {
+      setStepIndex((i) => {
+        if (i < steps.length - 1) return i + 1;
+        setPlaying(false);
+        return i;
+      });
+    });
+  }, [playing, stepIndex, status, steps, speak]);
+
+  // keyboard navigation
+  useEffect(() => {
+    if (status !== "ready") return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+      if (e.key === "ArrowRight") { e.preventDefault(); setStepIndex((i) => Math.min(steps.length - 1, i + 1)); }
+      else if (e.key === "ArrowLeft") { e.preventDefault(); setStepIndex((i) => Math.max(0, i - 1)); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [status, steps.length]);
+
   const loadPdf = useCallback(async (file: File) => {
     setErr("");
-    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
-      setErr("Please choose a PDF file."); return;
-    }
+    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) { setErr("Please choose a PDF file."); return; }
+    stop(); setPlaying(false);
     setFileName(file.name);
     setStatus("rendering");
     setSteps([]); setStepIndex(0); setTitle("");
@@ -138,10 +191,7 @@ export default function PdfGuide({ lang }: { lang: string }) {
       pagesRef.current = pages;
 
       const docText = pages.map((p) => p.items.map((i) => i.str).join(" ")).join("\n\n").trim();
-      if (docText.length < 40) {
-        setErr("This PDF has no selectable text (it may be a scan), so it can't be walked through yet.");
-        setStatus("error"); return;
-      }
+      if (docText.length < 40) { setErr("This PDF has no selectable text (it may be a scan), so it can't be walked through yet."); setStatus("error"); return; }
 
       setStatus("analyzing");
       const res = await fetch("/api/guide", {
@@ -153,6 +203,7 @@ export default function PdfGuide({ lang }: { lang: string }) {
       if (g.error) { setErr(g.error); setStatus("error"); return; }
       const gSteps: Step[] = g.steps ?? [];
       locsRef.current = gSteps.map((s) => findAnchor(pages, s.anchor));
+      renderMarkers();
       setTitle(g.title ?? "Document walkthrough");
       setSteps(gSteps);
       setStepIndex(0);
@@ -161,7 +212,14 @@ export default function PdfGuide({ lang }: { lang: string }) {
       setErr("Could not open that PDF. Try another file.");
       setStatus("error");
     }
-  }, [lang]);
+  }, [lang, renderMarkers, stop]);
+
+  const togglePlay = useCallback(() => {
+    if (playing) { setPlaying(false); stop(); }
+    else setPlaying(true);
+  }, [playing, stop]);
+
+  const reset = useCallback(() => { stop(); setPlaying(false); pagesRef.current = []; setStatus("idle"); }, [stop]);
 
   const step = steps[stepIndex];
   const hasLoc = status === "ready" && locsRef.current[stepIndex] != null;
@@ -171,7 +229,7 @@ export default function PdfGuide({ lang }: { lang: string }) {
       <div className="wrap">
         <div className="section-label">
           <h2>Walk me through a PDF</h2>
-          <p>Upload a form or contract. Get guided, step by step, with each part highlighted and explained.</p>
+          <p>Upload a form or contract. Get guided, step by step, with each part highlighted and explained aloud.</p>
         </div>
 
         {status === "idle" || status === "error" ? (
@@ -193,16 +251,14 @@ export default function PdfGuide({ lang }: { lang: string }) {
           </div>
         ) : (
           <div className="guide-grid">
-            {/* PDF viewer */}
             <div className="guide-doc">
               <div className="guide-doc-head">
                 <span className="panel-title" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fileName}</span>
-                <button className="iconbtn" onClick={() => { setStatus("idle"); pagesRef.current = []; }}>New PDF</button>
+                <button className="iconbtn" onClick={reset}>New PDF</button>
               </div>
               <div className="guide-viewer" ref={viewerRef} />
             </div>
 
-            {/* step panel */}
             <aside className="guide-panel">
               {status !== "ready" ? (
                 <div className="guide-loading">
@@ -220,6 +276,7 @@ export default function PdfGuide({ lang }: { lang: string }) {
                       ))}
                     </div>
                   </div>
+                  <div className="guide-bar"><div className="guide-bar-fill" style={{ width: `${((stepIndex + 1) / steps.length) * 100}%` }} /></div>
                   {title && <p className="guide-title">{title}</p>}
                   <div className="guide-step">
                     <span className="step-emoji" aria-hidden="true">{step.emoji || "📌"}</span>
@@ -228,14 +285,15 @@ export default function PdfGuide({ lang }: { lang: string }) {
                     {!hasLoc && <p className="step-note">This part is in the document text; it could not be pinpointed on the page.</p>}
                   </div>
                   <div className="guide-actions">
-                    <button className="iconbtn" onClick={() => speak(`${step.heading}. ${step.explanation}`)} aria-pressed={speaking}>{speaking ? "Stop" : "▶ Read aloud"}</button>
+                    <button className={`btn${playing ? " ghost" : ""}`} onClick={togglePlay}>
+                      {playing ? "⏸ Pause" : "▶ Guide me through it"}
+                    </button>
                     <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
-                      <button className="btn ghost" onClick={() => setStepIndex((i) => Math.max(0, i - 1))} disabled={stepIndex === 0}>Back</button>
-                      {stepIndex < steps.length - 1
-                        ? <button className="btn" onClick={() => setStepIndex((i) => Math.min(steps.length - 1, i + 1))}>Next</button>
-                        : <button className="btn" onClick={() => setStepIndex(0)}>Start over</button>}
+                      <button className="iconbtn" onClick={() => setStepIndex((i) => Math.max(0, i - 1))} disabled={stepIndex === 0} aria-label="Previous step">← Back</button>
+                      <button className="iconbtn" onClick={() => setStepIndex((i) => Math.min(steps.length - 1, i + 1))} disabled={stepIndex === steps.length - 1} aria-label="Next step">Next →</button>
                     </div>
                   </div>
+                  <p className="guide-hint">Tip: use the ← and → arrow keys, or click a numbered pin on the document.</p>
                 </>
               ) : null}
             </aside>

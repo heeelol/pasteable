@@ -346,14 +346,20 @@ a { color: var(--accent); }
 }
 .cards { display: grid; gap: 10px; }
 .card {
-  display: flex; align-items: center; gap: 14px; padding: 13px 15px;
+  display: flex; align-items: center; gap: 14px; padding: 13px 15px; width: 100%;
   border: 1px solid var(--line); border-radius: 12px; background: var(--paper);
+  text-align: left; font-family: inherit; color: inherit; cursor: pointer;
+  transition: border-color 0.14s, transform 0.1s, box-shadow 0.14s;
 }
+.card:hover { border-color: var(--accent); box-shadow: var(--shadow-sm); }
+.card:active { transform: translateY(1px); }
 .card-emoji {
   font-size: 1.9rem; line-height: 1; flex: none; width: 46px; height: 46px;
   display: grid; place-items: center; border-radius: 11px; background: var(--card); border: 1px solid var(--line);
 }
-.card-text { font-size: 1.05rem; line-height: 1.45; color: var(--ink); }
+.card-text { font-size: 1.05rem; line-height: 1.45; color: var(--ink); flex: 1; }
+.card-say { flex: none; color: var(--muted); font-size: 0.8rem; opacity: 0; transition: opacity 0.14s; }
+.card:hover .card-say { opacity: 1; color: var(--accent); }
 
 .illus-row { display: flex; justify-content: center; padding-top: 4px; }
 .illus { max-width: 100%; width: 340px; border-radius: 14px; border: 1px solid var(--line); box-shadow: var(--shadow); }
@@ -379,6 +385,18 @@ a { color: var(--accent); }
 @keyframes hlpulse { 0%, 100% { box-shadow: 0 0 0 2px var(--accent), 0 0 0 5px color-mix(in srgb, var(--accent) 22%, transparent); } 50% { box-shadow: 0 0 0 2px var(--accent), 0 0 0 9px color-mix(in srgb, var(--accent) 10%, transparent); } }
 @media (prefers-reduced-motion: reduce) { .hl { animation: none; } }
 
+/* clickable numbered step markers on the document */
+.pdf-marker {
+  position: absolute; transform: translate(-50%, -50%);
+  min-width: 22px; height: 22px; padding: 0 5px; pointer-events: auto;
+  display: grid; place-items: center; border-radius: 999px; cursor: pointer;
+  background: var(--card); color: var(--accent); border: 2px solid var(--accent);
+  font-family: var(--font-mono); font-weight: 700; font-size: 0.72rem; line-height: 1;
+  box-shadow: 0 2px 6px -2px rgba(0,0,0,0.4); transition: transform 0.12s, background 0.12s;
+}
+.pdf-marker:hover { transform: translate(-50%, -50%) scale(1.15); }
+.pdf-marker.active { background: var(--accent); color: var(--accent-ink); transform: translate(-50%, -50%) scale(1.15); }
+
 .guide-panel { position: sticky; top: 82px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-sm); padding: 20px; min-height: 340px; display: flex; flex-direction: column; }
 .guide-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 10px; flex: 1; padding: 20px; }
 .guide-loading .big { font-family: var(--font-display); font-size: 1.15rem; font-weight: 700; margin: 0; }
@@ -398,3 +416,6 @@ a { color: var(--accent); }
 .step-explain { font-size: 1.1rem; line-height: 1.6; color: var(--ink); margin: 0; }
 .step-note { font-size: 0.82rem; color: var(--muted); margin: 12px 0 0; }
 .guide-actions { display: flex; align-items: center; gap: 8px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line-soft); flex-wrap: wrap; }
+.guide-bar { height: 6px; border-radius: 999px; background: var(--line); overflow: hidden; margin: 0 0 14px; }
+.guide-bar-fill { height: 100%; background: var(--accent); border-radius: 999px; transition: width 0.35s ease; }
+.guide-hint { font-size: 0.8rem; color: var(--muted); margin: 12px 0 0; }

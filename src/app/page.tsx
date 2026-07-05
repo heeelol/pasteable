@@ -225,7 +225,7 @@ export default function Page() {
     }
   }, []);
 
-  const { speak, speaking } = useSpeech(lang);
+  const { toggle, speaking } = useSpeech(lang);
 
   const copy = useCallback((t: string) => { navigator.clipboard?.writeText(t).catch(() => {}); }, []);
   const scrollToBench = () => document.getElementById("workbench")?.scrollIntoView({ behavior: "smooth" });
@@ -358,7 +358,7 @@ export default function Page() {
                   </div>
                   {tab === "read" && output && (
                     <div className="panel-actions">
-                      <button className="iconbtn" aria-pressed={speaking} onClick={() => speak(output)} title="Read aloud">{speaking ? "Stop" : "Read"}</button>
+                      <button className="iconbtn" aria-pressed={speaking} onClick={() => toggle(output)} title="Read aloud">{speaking ? "Stop" : "Read"}</button>
                       <button className="iconbtn" onClick={() => copy(output)} title="Copy result">Copy</button>
                     </div>
                   )}
@@ -385,10 +385,11 @@ export default function Page() {
                         {visual.summary && <p className="visual-summary">{visual.summary}</p>}
                         <div className="cards">
                           {visual.points.map((p, i) => (
-                            <div className="card" key={i}>
+                            <button className="card" key={i} onClick={() => toggle(p.text)} title="Tap to read aloud">
                               <span className="card-emoji" aria-hidden="true">{p.emoji || "•"}</span>
                               <span className="card-text">{p.text}</span>
-                            </div>
+                              <span className="card-say" aria-hidden="true">▶</span>
+                            </button>
                           ))}
                         </div>
                         <div className="illus-row">
@@ -439,7 +440,7 @@ export default function Page() {
         <PdfGuide lang={lang} />
 
         {/* image alt-text */}
-        <AltTextSection speak={speak} copy={copy} speaking={speaking} />
+        <AltTextSection toggle={toggle} copy={copy} speaking={speaking} />
 
         {/* features */}
         <section className="features">
@@ -486,7 +487,7 @@ export default function Page() {
 }
 
 /* ---------------- image → alt text ---------------- */
-function AltTextSection({ speak, copy, speaking }: { speak: (t: string) => void; copy: (t: string) => void; speaking: boolean; }) {
+function AltTextSection({ toggle, copy, speaking }: { toggle: (t: string) => void; copy: (t: string) => void; speaking: boolean; }) {
   const [preview, setPreview] = useState("");
   const [alt, setAlt] = useState("");
   const [long, setLong] = useState("");
@@ -552,7 +553,7 @@ function AltTextSection({ speak, copy, speaking }: { speak: (t: string) => void;
               <span className="panel-title"><span className="dot" style={{ background: "var(--accent)" }} /> Screen-reader description</span>
               {alt && (
                 <div className="panel-actions">
-                  <button className="iconbtn" aria-pressed={speaking} onClick={() => speak(`${alt}. ${long}`)}>{speaking ? "Stop" : "Read"}</button>
+                  <button className="iconbtn" aria-pressed={speaking} onClick={() => toggle(`${alt}. ${long}`)}>{speaking ? "Stop" : "Read"}</button>
                   <button className="iconbtn" onClick={() => copy(alt)}>Copy alt</button>
                 </div>
               )}
