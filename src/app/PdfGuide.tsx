@@ -9,7 +9,7 @@ type PageData = { items: { str: string; x: number; y: number; w: number; h: numb
 type Loc = { page: number; rect: Rect } | null;
 type Status = "idle" | "rendering" | "analyzing" | "ready" | "error";
 
-const MAX_PAGES = 12;
+const MAX_PAGES = 25;
 
 function findAnchor(pages: PageData[], anchor: string): Loc {
   const want = anchor.toLowerCase().replace(/\s+/g, " ").trim();
